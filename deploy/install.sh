@@ -40,7 +40,15 @@ case "${REDIS_PASSWORD:-}" in ""|*CHANGE_ME*) set_env REDIS_PASSWORD "$(random_h
 rm -f "$ENV_FILE.bak"
 
 echo "正在部署 nscan..."
-ENV_FILE="$ENV_FILE" BUILD_LOCAL=true USE_LOCAL_IMAGES=true "$ROOT_DIR/deploy/deploy.sh"
+if docker image inspect nscan-server:release >/dev/null 2>&1 && \
+   docker image inspect nscan-scanner:release >/dev/null 2>&1; then
+  BUILD_LOCAL=false
+  echo "检测到本地镜像，跳过重复构建。"
+else
+  BUILD_LOCAL=true
+  echo "首次部署，开始构建镜像。"
+fi
+ENV_FILE="$ENV_FILE" BUILD_LOCAL="$BUILD_LOCAL" USE_LOCAL_IMAGES=true "$ROOT_DIR/deploy/deploy.sh"
 
 . "$ENV_FILE"
 echo "部署完成： http://${DOMAIN}"
