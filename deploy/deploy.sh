@@ -54,5 +54,5 @@ while [ "$i" -lt 30 ]; do
 done
 
 echo "部署后健康检查失败，最近日志：" >&2
-$COMPOSE logs --tail=100 server scanner gateway >&2 || true
+$COMPOSE logs --tail=100 mongodb redis server scanner gateway >&2 || true
 exit 1

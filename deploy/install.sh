@@ -8,8 +8,8 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ENV_FILE=${ENV_FILE:-$ROOT_DIR/deploy/.env.production}
 
 if [ ! -f "$ENV_FILE" ]; then
-  echo "缺少配置文件：$ENV_FILE" >&2
-  echo "请先复制 deploy/.env.production.example 为 deploy/.env.production，并填写 DOMAIN。" >&2
+  cp "$ROOT_DIR/deploy/.env.production.example" "$ENV_FILE"
+  echo "已创建配置文件：$ENV_FILE，请填写 DOMAIN 后重新执行。" >&2
   exit 1
 fi
 
@@ -26,6 +26,12 @@ random_hex() {
 
 # 用户只需配置域名和镜像仓库；其余密钥首次安装时自动生成。
 . "$ENV_FILE"
+if [ "${RESET_MONGO:-false}" = "true" ]; then
+  echo "RESET_MONGO=true：清理当前项目 MongoDB 数据卷。"
+  COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-nscan-production}"
+  docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" -f "$ROOT_DIR/deploy/docker-compose.prod.yaml" down
+  docker volume rm "${COMPOSE_PROJECT_NAME}_mongo_data" 2>/dev/null || true
+fi
 case "${DOMAIN:-}" in
   ""|nscan.example.com|localhost)
     echo "请先在 $ENV_FILE 中填写真实 DOMAIN" >&2
