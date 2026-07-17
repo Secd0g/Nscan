@@ -43,6 +43,6 @@ echo "正在部署 nscan..."
 ENV_FILE="$ENV_FILE" BUILD_LOCAL=true USE_LOCAL_IMAGES=true "$ROOT_DIR/deploy/deploy.sh"
 
 . "$ENV_FILE"
-echo "部署完成： https://${DOMAIN}"
+echo "部署完成： http://${DOMAIN}"
 echo "管理员账号：${ADMIN_USER}"
 echo "管理员密码：${ADMIN_PASS}"

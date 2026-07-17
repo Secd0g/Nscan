@@ -16,6 +16,12 @@ cp deploy/.env.production.example deploy/.env.production
 ./deploy/install.sh
 ```
 
+Docker Nginx 配置文件：
+
+```text
+deploy/nginx.conf
+```
+
 ## 管理
 
 查看状态：
