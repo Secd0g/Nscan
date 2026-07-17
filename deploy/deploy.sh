@@ -41,7 +41,6 @@ else
   docker pull "$SCANNER_IMAGE"
 fi
 
-"$ROOT_DIR/deploy/backup.sh" || echo "首次部署或备份失败，继续启动服务。" >&2
 $COMPOSE up -d --remove-orphans
 
 i=0
