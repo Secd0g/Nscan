@@ -39,6 +39,19 @@ case "${MONGO_ROOT_PASS:-}" in ""|*CHANGE_ME*) set_env MONGO_ROOT_PASS "$(random
 case "${REDIS_PASSWORD:-}" in ""|*CHANGE_ME*) set_env REDIS_PASSWORD "$(random_hex 20)" ;; esac
 rm -f "$ENV_FILE.bak"
 
+CERT_DIR="$ROOT_DIR/deploy/certs"
+mkdir -p "$CERT_DIR"
+if [ ! -f "$CERT_DIR/server.crt" ] || [ ! -f "$CERT_DIR/server.key" ]; then
+  echo "未检测到证书，生成自签名证书..."
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "$CERT_DIR/server.key" \
+    -out "$CERT_DIR/server.crt" \
+    -days 3650 \
+    -subj "/CN=$DOMAIN" \
+    -addext "subjectAltName=DNS:$DOMAIN" >/dev/null 2>&1
+  chmod 600 "$CERT_DIR/server.key"
+fi
+
 echo "正在部署 nscan..."
 if docker image inspect nscan-server:release >/dev/null 2>&1 && \
    docker image inspect nscan-scanner:release >/dev/null 2>&1; then
@@ -51,6 +64,6 @@ fi
 ENV_FILE="$ENV_FILE" BUILD_LOCAL="$BUILD_LOCAL" USE_LOCAL_IMAGES=true "$ROOT_DIR/deploy/deploy.sh"
 
 . "$ENV_FILE"
-echo "部署完成： http://${DOMAIN}"
+echo "部署完成： https://${DOMAIN}"
 echo "管理员账号：${ADMIN_USER}"
 echo "管理员密码：${ADMIN_PASS}"

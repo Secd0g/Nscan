@@ -10,7 +10,7 @@ BACKUP_DIR=${BACKUP_DIR:-$ROOT_DIR/backups/$STAMP}
 mkdir -p "$BACKUP_DIR"
 
 $COMPOSE exec -T mongodb mongodump --username "$MONGO_ROOT_USER" --password "$MONGO_ROOT_PASS" --authenticationDatabase admin --db nscan --archive --gzip > "$BACKUP_DIR/mongodb.archive.gz"
-$COMPOSE exec -T redis redis-cli --rdb /tmp/nscan-dump.rdb >/dev/null
+$COMPOSE exec -T redis redis-cli -a "$REDIS_PASSWORD" --rdb /tmp/nscan-dump.rdb >/dev/null
 $COMPOSE cp redis:/tmp/nscan-dump.rdb "$BACKUP_DIR/redis.rdb"
 $COMPOSE exec -T redis rm -f /tmp/nscan-dump.rdb
 
