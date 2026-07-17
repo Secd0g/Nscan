@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package scan.v1;
+
+option go_package = "github.com/yourname/nscan/pkg/proto/scanv1";
+
+// ─── 主服务 ───────────────────────────────────────────────────────────────────
+// 扫描节点主动连接服务端，建立双向流。节点发送 ScannerMessage，服务端发送 ServerMessage。
+service ScanService {
+    rpc Connect(stream ScannerMessage) returns (stream ServerMessage);
+}
+
+// ─── 节点 → 服务端 ─────────────────────────────────────────────────────────────
+message ScannerMessage {
+    string msg_id = 1;
+    oneof payload {
+        RegisterRequest  register          = 2;
+        Heartbeat        heartbeat         = 3;
+        TaskResult       result            = 4;
+        TaskProgress     progress          = 5;
+        TaskStatusUpdate status            = 6;
+        InstallResult    install_result    = 7;
+        SubtaskProgress  subtask_progress  = 8;
+        SubtaskComplete  subtask_complete  = 9;
+        AIPentestResult  ai_pentest_result  = 10;
+    }
+}
+
+// ─── 服务端 → 节点 ─────────────────────────────────────────────────────────────
+message ServerMessage {
+    string msg_id = 1;
+    oneof payload {
+        RegisterAck   ack          = 2;
+        ScanTask      task         = 3;
+        CancelTask    cancel       = 4;
+        KickNode      kick         = 5;
+        RestartNode   restart      = 6;
+        InstallTool   install_tool = 7;
+        AssignSubtask subtask      = 8;
+        AIPentestTask ai_pentest   = 9;
+    }
+}
+
+message KickNode {
+    string reason = 1; // "deleted" | "token_changed"
+}
+
+message RestartNode {}
+
+// ─── 注册 ─────────────────────────────────────────────────────────────────────
+message RegisterRequest {
+    string          name            = 1; // 节点名称（自定义）
+    string          token           = 2; // 认证 token
+    string          version         = 3; // 节点版本
+    repeated string capabilities    = 4; // 支持的扫描类型，如 ["port","subdomain","httpx","nuclei"]
+    int32           max_tasks       = 5; // 最大并发任务数
+    repeated string installed_tools = 6; // 已安装的外部工具，如 ["subfinder","naabu","httpx","nuclei"]
+}
+
+message RegisterAck {
+    string node_id  = 1; // 服务端分配的节点 ID
+    bool   accepted = 2;
+    string message  = 3;
+}
+
+// ─── 心跳 ─────────────────────────────────────────────────────────────────────
+message Heartbeat {
+    string node_id      = 1;
+    int32  cpu_percent  = 2;
+    int32  mem_percent  = 3;
+    int32  active_tasks = 4;
+}
+
+// ─── 任务下发 ─────────────────────────────────────────────────────────────────
+message ScanTask {
+    string          task_id    = 1;
+    string          project_id = 2;
+    repeated string targets    = 3; // 扫描目标：域名/IP/CIDR
+    TaskConfig      config     = 4;
+    repeated BlacklistRule blacklist = 5; // 黑名单，用于在节点跳过扫描
+}
+
+message BlacklistRule {
+    string type  = 1;
+    string value = 2;
+}
+
+message TaskConfig {
+    repeated string        stages = 1;  // 启用的阶段，如 ["subdomain","port","httpx","nuclei"]
+    map<string, string>    params = 2;  // 阶段参数，如 {"port.rate": "1000"}
+}
+
+message CancelTask {
+    string task_id = 1;
+    string reason  = 2;
+}
+
+// ─── 结果上报 ─────────────────────────────────────────────────────────────────
+message TaskResult {
+    string task_id     = 1;
+    string node_id     = 2;
+    string result_type = 3; // "subdomain" | "port" | "http" | "vuln"
+    bytes  data        = 4; // JSON 编码的具体结果
+}
+
+message TaskProgress {
+    string task_id = 1;
+    string stage   = 2;
+    int32  percent = 3;
+    string message = 4;
+    string log     = 5; // 单行日志，kind="log" 时填充
+    string level   = 6; // "info" | "warn" | "error" | "debug"
+    string node_id = 7;
+}
+
+message TaskStatusUpdate {
+    string task_id = 1;
+    string status  = 2; // "running" | "done" | "failed"
+    string error   = 3;
+}
+
+// ─── 工具安装 ─────────────────────────────────────────────────────────────────
+message InstallTool {
+    string tool_name   = 1;
+    string install_cmd = 2;
+    bool   reinstall   = 3; // true 时先卸载旧版再安装
+    bool   uninstall   = 4; // true 时仅卸载工具（删除二进制），忽略 install_cmd
+}
+
+message InstallResult {
+    string          tool_name       = 1;
+    bool            success         = 2;
+    string          error_msg       = 3;
+    repeated string installed_tools = 4; // 安装后重新检测的完整工具列表
+}
+
+// 服务端 → 节点：在用户明确授权后运行 Claude Code。节点只接受服务端生成的目标范围和提示词。
+message AIPentestTask {
+    string task_id = 1;
+    string prompt = 2;
+    repeated string targets = 3;
+    int32 timeout_seconds = 4;
+    string api_key = 5; // transient, never persisted in the task document
+}
+
+message AIPentestResult {
+    string task_id = 1;
+    string node_id = 2;
+    string status = 3; // running | done | failed | cancelled
+    string output = 4;
+    string log = 5;
+    string error = 6;
+}
+
+// ─── Subtask（Phase 3 分布式队列）─────────────────────────────────────────────
+// 服务端 → 节点：分配一个 subtask（通过 ServerMessage.subtask 字段扩展）
+message AssignSubtask {
+    string              subtask_id  = 1;
+    string              task_id     = 2;
+    string              stage       = 3;
+    repeated string     targets     = 4;
+    map<string, string> params      = 5;
+    repeated BlacklistRule blacklist = 6;
+}
+
+// 节点 → 服务端：subtask 阶段性进度
+message SubtaskProgress {
+    string subtask_id = 1;
+    string task_id    = 2;
+    string stage      = 3;
+    int32  percent    = 4;
+    string message    = 5;
+    string log        = 6;
+    string level      = 7;
+    string node_id    = 8;
+}
+
+// 节点 → 服务端：subtask 完成（成功或失败）
+message SubtaskComplete {
+    string subtask_id   = 1;
+    string task_id      = 2;
+    string stage        = 3;
+    string node_id      = 4;
+    bool   success      = 5;
+    string error_msg    = 6;
+    bytes  output       = 7; // JSON 编码的输出资产列表（成功时填充）
+}

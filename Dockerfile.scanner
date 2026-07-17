@@ -1,0 +1,110 @@
+# ── Stage 1: Build Go binary ─────────────────────────────────────────────────
+ARG GO_IMAGE=golang:1.26-bookworm
+ARG DEBIAN_IMAGE=debian:bookworm-slim
+
+FROM ${GO_IMAGE} AS builder
+
+ENV GOPROXY=https://goproxy.cn,direct
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /out/nscan-scanner ./cmd/scanner
+
+# ── Stage 2: Install all security tools ──────────────────────────────────────
+FROM ${GO_IMAGE} AS tools
+
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOPATH=/root/go
+ENV PATH="/root/go/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends libpcap-dev && rm -rf /var/lib/apt/lists/*
+
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    go install -v github.com/projectdiscovery/shuffledns/cmd/shuffledns@latest && \
+    go install -v github.com/ffuf/ffuf/v2@latest && \
+    go install -v github.com/boy-hack/ksubdomain/v2/cmd/ksubdomain@latest
+
+RUN nuclei -update-templates || true
+
+# ── Stage 3: Runtime image ───────────────────────────────────────────────────
+FROM ${DEBIAN_IMAGE}
+
+ARG TARGETARCH
+ARG INSTALL_AI_TOOLS=false
+ARG INSTALL_OPTIONAL_TOOLS=false
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl wget unzip python3 \
+        libpcap-dev \
+    && if [ "${INSTALL_AI_TOOLS}" = "true" ]; then \
+        apt-get install -y --no-install-recommends nodejs npm git; \
+    fi \
+    && if [ "${INSTALL_OPTIONAL_TOOLS}" = "true" ]; then \
+        apt-get install -y --no-install-recommends python3-pip pipx; \
+    fi \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go toolchain for runtime plugin compilation / go install
+COPY --from=builder /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:/root/go/bin:/root/.local/bin:${PATH}"
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOPATH=/root/go
+
+# Claude Code + HackSkills are optional because their installer may be
+# unavailable in some build regions. Set INSTALL_AI_TOOLS=true for an AI node.
+RUN if [ "${INSTALL_AI_TOOLS}" = "true" ]; then \
+        curl -fsSL https://claude.ai/install.sh | bash \
+        && claude --version \
+        && mkdir -p /opt/hack-skills \
+        && cd /opt/hack-skills \
+        && npx --yes skills add yaklang/hack-skills \
+        && mkdir -p /root/.claude/skills \
+        && if [ -d .agents/skills ]; then cp -a .agents/skills/. /root/.claude/skills/; fi \
+        && rm -rf /opt/hack-skills; \
+    else \
+        echo "AI tooling disabled; build with INSTALL_AI_TOOLS=true to enable it"; \
+    fi
+
+# Pre-built Go security tools
+COPY --from=tools /root/go/bin/ /root/go/bin/
+
+# Nuclei templates
+COPY --from=tools /root/nuclei-templates /root/nuclei-templates
+
+# Findomain and bbot are optional because their upstream downloads may be
+# unavailable in restricted build networks.
+RUN if [ "${INSTALL_OPTIONAL_TOOLS}" = "true" ]; then \
+        case "${TARGETARCH}" in \
+            amd64) archive="findomain-linux.zip" ;; \
+            arm64) archive="findomain-aarch64.zip" ;; \
+            arm) archive="findomain-armv7.zip" ;; \
+            *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+        esac \
+        && curl -fsSL "https://github.com/Findomain/Findomain/releases/latest/download/${archive}" -o /tmp/findomain.zip \
+        && unzip -o /tmp/findomain.zip -d /usr/local/bin \
+        && chmod +x /usr/local/bin/findomain \
+        && rm /tmp/findomain.zip \
+        && pipx install bbot --force \
+        && pipx ensurepath; \
+    else \
+        echo "optional Findomain/BBOT tooling disabled; build with INSTALL_OPTIONAL_TOOLS=true to enable it"; \
+    fi
+
+# Scanner binary
+COPY --from=builder /out/nscan-scanner /usr/local/bin/nscan-scanner
+
+# Entrypoint
+COPY docker/scanner-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+WORKDIR /app
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -1,0 +1,12 @@
+web/node_modules
+web/dist
+.git
+.claude
+dist
+bin
+*.log
+.env*
+certs
+data/scanner
+.claude/worktrees
+.git

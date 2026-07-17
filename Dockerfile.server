@@ -1,0 +1,48 @@
+# ── Stage 1: Build Go binary ─────────────────────────────────────────────────
+ARG GO_IMAGE=golang:1.26-bookworm
+ARG NODE_IMAGE=node:20-slim
+ARG DEBIAN_IMAGE=debian:bookworm-slim
+
+FROM ${GO_IMAGE} AS builder
+
+ENV GOPROXY=https://goproxy.cn,direct
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /out/nscan-server ./cmd/server
+
+# ── Stage 2: Build frontend ─────────────────────────────────────────────────
+FROM ${NODE_IMAGE} AS frontend
+
+WORKDIR /web
+COPY web/package.json web/pnpm-lock.yaml* web/yarn.lock* web/package-lock.json* ./
+RUN corepack enable && pnpm install --frozen-lockfile 2>/dev/null \
+    || npm install 2>/dev/null \
+    || yarn install --frozen-lockfile 2>/dev/null
+COPY web/ .
+RUN npx vue-tsc --noEmit
+RUN npx vite build
+
+# ── Stage 3: Runtime ─────────────────────────────────────────────────────────
+FROM ${DEBIAN_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates nginx openssl curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/nscan-server /usr/local/bin/nscan-server
+COPY --from=frontend /web/dist /usr/share/nginx/html
+
+COPY docker/server-entrypoint.sh /entrypoint.sh
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+RUN chmod +x /entrypoint.sh
+
+WORKDIR /app
+
+EXPOSE 80 9000
+
+ENTRYPOINT ["/entrypoint.sh"]

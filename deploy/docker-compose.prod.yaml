@@ -1,0 +1,108 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--username", "${MONGO_ROOT_USER}", "--password", "${MONGO_ROOT_PASS}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping').ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks: [nscan]
+
+  redis:
+    image: redis:7.2
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [nscan]
+
+  server:
+    image: ${SERVER_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${GRPC_PORT:-9000}:9000"
+    environment:
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASS}@mongodb:27017/nscan?authSource=admin
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AUTH_TOKEN: ${AUTH_TOKEN}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_USER: ${ADMIN_USER}
+      ADMIN_PASS: ${ADMIN_PASS}
+      SCANNER_IMAGE: ${SCANNER_IMAGE}
+      QUEUE_MODE: ${QUEUE_MODE:-redis}
+    volumes:
+      - nscan_images:/app/images
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [nscan]
+
+  scanner:
+    image: ${SCANNER_IMAGE}
+    restart: unless-stopped
+    environment:
+      SERVER_ADDR: server:9000
+      TOKEN: ${AUTH_TOKEN}
+      MAX_TASKS: ${MAX_TASKS:-5}
+      REDIS_ADDR: redis:6379
+      REDIS_PASS: ${REDIS_PASSWORD}
+      QUEUE_WORKERS: ${QUEUE_WORKERS:-0}
+      CAPABILITIES: ${CAPABILITIES:-search,subdomain,shuffledns,port,http,crawler,nuclei,brute,dir,sensitive,ai-pentest}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    volumes:
+      - scanner_data:/app/data
+    depends_on:
+      server:
+        condition: service_healthy
+    networks: [nscan]
+
+  gateway:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+    networks: [nscan]
+
+volumes:
+  mongo_data:
+  redis_data:
+  nscan_images:
+  scanner_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  nscan:
+    driver: bridge

@@ -1,0 +1,162 @@
+/* ── 基础重置 ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+}
+
+/* ── Element Plus 变量覆盖 ────────────────────────── */
+:root {
+  --el-color-primary: #4080ff;
+  --el-color-primary-light-3: #6fa3ff;
+  --el-color-primary-light-5: #9dc2ff;
+  --el-color-primary-light-7: #cce0ff;
+  --el-color-primary-light-8: #ddeaff;
+  --el-color-primary-light-9: #eef4ff;
+  --el-color-primary-dark-2: #2563e0;
+  --el-border-radius-base: 6px;
+  --el-font-size-base: 13px;
+}
+
+/* ── 页面容器 ─────────────────────────────────────── */
+.page-card {
+  background: var(--el-bg-color-overlay);
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-light);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.page-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin: 0;
+}
+.header-actions { display: flex; gap: 8px; align-items: center; }
+
+/* ── 批量删除按钮（仿 cscan 始终可见） ────────────── */
+.batch-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── 筛选条 ──────────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.total-text { font-size: 13px; color: var(--el-text-color-secondary); }
+
+/* ── Element Plus 组件微调 ───────────────────────── */
+/* 表格（仿 cscan：浅灰表头、行分隔淡、悬浮高亮） */
+.el-table { font-size: 13px; color: var(--el-text-color-regular); }
+.el-table th.el-table__cell {
+  background: var(--el-fill-color-light) !important;
+  color: var(--el-text-color-regular);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 11px 0;
+}
+.el-table td.el-table__cell { padding: 11px 0; }
+.el-table__cell { border-bottom-color: var(--el-border-color-lighter) !important; }
+.el-table__row:hover > td.el-table__cell { background: var(--el-fill-color) !important; }
+.el-table--border { border-color: var(--el-border-color-lighter) !important; }
+.el-table--border th.el-table__cell, .el-table--border td.el-table__cell { border-color: var(--el-border-color-lighter) !important; }
+/* 行内操作列：链接按钮与竖分隔线的间距（避免"进度|资产|删除"挤在一起） */
+.el-table .el-button.is-link + .el-button.is-link { margin-left: 2px; }
+.el-table .cell .el-divider--vertical { margin: 0 8px; border-color: var(--el-border-color-lighter); }
+
+/* 行内筛选表单：收紧 Element 默认过宽/不齐的间距 */
+.el-form--inline .el-form-item { margin-right: 16px; margin-bottom: 10px; }
+.el-form--inline .el-form-item:last-child { margin-right: 0; }
+.el-form--inline .el-form-item__label { color: var(--el-text-color-regular); font-weight: normal; padding-right: 8px; }
+
+/* 按钮 */
+.el-button { border-radius: 6px; font-size: 13px; }
+/* 相邻按钮统一间距（popconfirm/tooltip 包裹时 Element 的 +选择器会失效，这里兜底） */
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.el-button--primary { background: #4080ff; border-color: #4080ff; }
+.el-button--primary:hover { background: #2563e0; border-color: #2563e0; }
+/* 仅实心 danger 按钮用品牌红底；plain/link/text 变体保持 Element Plus 默认，避免红字压红底/链接按钮被刷红 */
+.el-button--danger:not(.is-plain):not(.is-link):not(.is-text) { background: #f56c6c; border-color: #f56c6c; }
+/* 批量删除按钮：未选中时完全透明，不占视觉 */
+.el-button--danger.is-plain.is-disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 输入框 */
+.el-input__wrapper { border-radius: 6px; }
+.el-select .el-input__wrapper { border-radius: 6px; }
+
+/* Tag */
+.el-tag { border-radius: 4px; font-size: 12px; }
+
+/* 抽屉 */
+.el-drawer__header { padding: 16px 20px 14px; border-bottom: 1px solid var(--el-border-color-lighter); margin-bottom: 0; }
+.el-drawer__body { padding: 16px 20px; overflow-y: auto; }
+.el-drawer__footer { padding: 12px 20px; border-top: 1px solid var(--el-border-color-lighter); }
+
+/* 标签页 */
+.el-tabs--border-card {
+  border-radius: 8px;
+  border-color: var(--el-border-color-light);
+  box-shadow: none;
+}
+.el-tabs--border-card > .el-tabs__header {
+  background: var(--el-fill-color-light);
+  border-bottom-color: var(--el-border-color-light);
+}
+
+/* 分页 */
+.el-pagination { font-size: 13px; }
+.el-pagination.is-background .el-pager li:not(.is-disabled).is-active {
+  background-color: #4080ff;
+}
+
+/* 对话框 */
+.el-dialog { border-radius: 10px; }
+.el-dialog__header { padding: 18px 20px 14px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.el-dialog__body { padding: 18px 20px; }
+.el-dialog__footer { padding: 12px 20px; border-top: 1px solid var(--el-border-color-lighter); }
+
+/* 卡片 */
+.el-card { border-radius: 8px; border-color: var(--el-border-color-light); }
+.el-card__header { padding: 14px 18px; border-bottom-color: var(--el-border-color-lighter); font-weight: 500; }
+.el-card__body { padding: 18px; }
+
+/* ── 代码块 ──────────────────────────────────────── */
+.cmd-box {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--el-fill-color-dark);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.cmd-box code, .cmd-box pre {
+  color: var(--el-text-color-regular);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex: 1;
+}
+.cmd-title { margin: 12px 0 6px; font-size: 13px; color: var(--el-text-color-regular); font-weight: 500; }
+.cmd-title:first-child { margin-top: 0; }

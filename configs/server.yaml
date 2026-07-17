@@ -1,0 +1,31 @@
+server:
+  http_addr: ":8080"      # REST API 监听地址
+  grpc_addr: ":9000"      # gRPC 监听地址（供扫描节点连接）
+  tls:
+    enabled: true
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+  auth_token: "change-me-in-production"  # 节点认证 token
+  admin_user: "admin"
+  admin_pass: "admin123"
+  jwt_secret: "super-secret-jwt-key"
+  scanner_image: "nscan-scanner:latest"  # 扫描节点 Docker 镜像（推送到 registry 后改为完整地址）
+
+mongodb:
+  uri: "mongodb://localhost:27018"
+  database: "nscan"
+
+redis:
+  addr: "localhost:6380"
+  password: ""
+  db: 0
+
+log:
+  level: "info"   # debug | info | warn | error
+  format: "json"  # json | console
+
+# Phase 3: task queue mode
+# mode: "redis"   → split task into subtasks, distribute across nodes (requires Redis)
+# mode: "legacy"  → single-node PickNode+gRPC dispatch (default, backward-compatible)
+queue:
+  mode: "legacy"
