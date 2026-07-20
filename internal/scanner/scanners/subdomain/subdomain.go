@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 	"github.com/yourname/nscan/internal/scanner/engine"
 	"github.com/yourname/nscan/pkg/models"
 	"go.uber.org/zap"
@@ -61,7 +62,7 @@ func (s *Stage) Run(
 			subdomains = append(subdomains, item.domain)
 
 			dnsCtx, dnsCancel := context.WithTimeout(ctx, 5*time.Second)
-			ips, _ := net.DefaultResolver.LookupHost(dnsCtx, item.domain)
+			ips, _ := dnsresolver.Resolver(params["resolvers"]).LookupHost(dnsCtx, item.domain)
 			dnsCancel()
 			asset := &models.SubdomainAsset{
 				Domain:  item.domain,
@@ -135,7 +136,7 @@ func (s *Stage) collectAll(ctx context.Context, domain string, params map[string
 
 	if enabledSources["dns_record"] {
 		engine.SendLog(progress, StageName, "info", "[dns_record] 数据源已启用")
-		collectors = append(collectors, &dnsRecordCollector{})
+		collectors = append(collectors, &dnsRecordCollector{resolverConfig: params["resolvers"]})
 	}
 
 	if enabledSources["dns_brute"] {
@@ -147,9 +148,10 @@ func (s *Stage) collectAll(ctx context.Context, domain string, params map[string
 			} else {
 				engine.SendLog(progress, StageName, "info", fmt.Sprintf("[ksubdomain] 已找到二进制: %s, 开启无状态爆破", path))
 				collectors = append(collectors, &ksubdomainCollector{
-					path:          path,
-					wordlistLines: wl,
-					band:          band,
+					path:           path,
+					wordlistLines:  wl,
+					band:           band,
+					resolverConfig: params["resolvers"],
 				})
 			}
 		} else {
@@ -159,9 +161,9 @@ func (s *Stage) collectAll(ctx context.Context, domain string, params map[string
 
 	// 并行收集
 	type result struct {
-		name  string
-		subs  []string
-		err   error
+		name string
+		subs []string
+		err  error
 	}
 
 	// per-collector timeout（默认 10 分钟，可通过 collector_timeout 参数覆盖）

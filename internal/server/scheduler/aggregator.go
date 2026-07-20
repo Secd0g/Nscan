@@ -168,6 +168,82 @@ func (s *Scheduler) advanceTask(ctx context.Context, taskIDStr, completedStage s
 		s.markTaskDone(ctx, taskOID)
 		return
 	}
+	// Subdomain enumerators are independent root-domain passes. They must not
+	// recursively resume from assets emitted by an earlier enumerator: every
+	// tool gets the original user-supplied roots as its input.
+	if isRootEnumerationStage(nextStage) {
+		nextTargets = append([]string(nil), task.Targets...)
+	}
+	if isHTTPProbeStage(nextStage) {
+		// HTTP probing consumes discovered hostnames, not prior HTTP records.
+		// When the preceding port stage found no open ports, its root fallback
+		// must not discard the subdomain inventory.
+		cur, err := s.db.Collection("assets_subdomain").Find(ctx, bson.M{"project_id": task.ProjectID})
+		if err == nil {
+			defer cur.Close(ctx)
+			seen := make(map[string]struct{}, len(nextTargets))
+			for _, target := range nextTargets {
+				seen[target] = struct{}{}
+			}
+			for cur.Next(ctx) {
+				var asset struct {
+					Domain string `bson:"domain"`
+				}
+				if cur.Decode(&asset) == nil && asset.Domain != "" {
+					if _, ok := seen[asset.Domain]; !ok {
+						nextTargets = append(nextTargets, asset.Domain)
+						seen[asset.Domain] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	if isHTTPConsumerStage(nextStage) {
+		// Downstream web stages consume verified, reachable URLs only.
+		cur, err := s.db.Collection("assets_http").Find(ctx, bson.M{"project_id": task.ProjectID})
+		if err == nil {
+			defer cur.Close(ctx)
+			seen := make(map[string]struct{}, len(nextTargets))
+			for _, target := range nextTargets {
+				seen[target] = struct{}{}
+			}
+			for cur.Next(ctx) {
+				var asset struct {
+					URL string `bson:"url"`
+				}
+				if cur.Decode(&asset) == nil && asset.URL != "" {
+					if _, ok := seen[asset.URL]; !ok {
+						nextTargets = append(nextTargets, asset.URL)
+						seen[asset.URL] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	if isPortConsumerStage(nextStage) {
+		// Weak-password checks operate only on confirmed open services.
+		cur, err := s.db.Collection("assets_port").Find(ctx, bson.M{"project_id": task.ProjectID})
+		if err == nil {
+			defer cur.Close(ctx)
+			seen := make(map[string]struct{}, len(nextTargets))
+			for _, target := range nextTargets {
+				seen[target] = struct{}{}
+			}
+			for cur.Next(ctx) {
+				var asset struct {
+					IP   string `bson:"ip"`
+					Port int    `bson:"port"`
+				}
+				if cur.Decode(&asset) == nil && asset.IP != "" && asset.Port > 0 {
+					target := fmt.Sprintf("%s:%d", asset.IP, asset.Port)
+					if _, ok := seen[target]; !ok {
+						nextTargets = append(nextTargets, target)
+						seen[target] = struct{}{}
+					}
+				}
+			}
+		}
+	}
 
 	if len(nextTargets) == 0 {
 		s.log.Info("no targets for next stage, task complete",
@@ -215,6 +291,15 @@ func (s *Scheduler) advanceTask(ctx context.Context, taskIDStr, completedStage s
 		zap.Int("subtasks", len(subtasks)),
 		zap.Int("targets", len(nextTargets)),
 	)
+}
+
+func isRootEnumerationStage(stage string) bool {
+	switch stage {
+	case "bbot", "findomain", "subdomain", "shuffledns":
+		return true
+	default:
+		return false
+	}
 }
 
 // nextStageAfter returns the stage following current in the ordered list.

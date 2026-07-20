@@ -105,6 +105,14 @@ func (w *Watchdog) checkPendingSet(ctx context.Context, taskID string) {
 			)
 			continue
 		}
+		queued, err := w.q.IsQueued(ctx, st.Capability, st.ID)
+		if err != nil {
+			continue
+		}
+		if queued {
+			// It is waiting for a worker, not abandoned by one.
+			continue
+		}
 
 		metrics.LeaseExpiredTotal.Inc()
 		if st.Attempt >= queue.MaxAttempts {

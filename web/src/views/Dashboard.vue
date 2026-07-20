@@ -236,12 +236,12 @@ const opStats = computed(() => [
 ])
 
 const assetStats = computed(() => [
-  { label: '子域名', value: counts.value.subdomains, route: '/assets' },
-  { label: '端口', value: counts.value.ports, route: '/assets' },
-  { label: 'HTTP 资产', value: counts.value.http, route: '/assets' },
-  { label: '漏洞', value: counts.value.vulns, route: '/assets' },
-  { label: '目录', value: counts.value.dirs, route: '/assets' },
-  { label: '敏感信息', value: counts.value.sensitive, route: '/assets' },
+  { label: '子域名', value: counts.value.subdomains, route: '/assets?tab=subdomain' },
+  { label: '端口', value: counts.value.ports, route: '/assets?tab=ip' },
+  { label: 'HTTP 资产', value: counts.value.http, route: '/assets?tab=asset' },
+  { label: '漏洞', value: counts.value.vulns, route: '/assets?tab=vuln' },
+  { label: '目录', value: counts.value.dirs, route: '/assets?tab=dir' },
+  { label: '敏感信息', value: counts.value.sensitive, route: '/assets?tab=sensitive' },
 ])
 
 function isOnline(node: Node) {

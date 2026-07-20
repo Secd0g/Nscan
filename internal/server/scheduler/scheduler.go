@@ -44,9 +44,9 @@ type Scheduler struct {
 	settings        *repositories.SettingsRepo
 	aiResultHandler func(*scanv1.AIPentestResult)
 
-	projCache sync.Map // taskID(ObjectID) -> project_id(ObjectID)，避免每条结果都查库
+	projCache         sync.Map // taskID(ObjectID) -> project_id(ObjectID)，避免每条结果都查库
 	progressPersistMu sync.Mutex
-	progressPersist  map[string]time.Time
+	progressPersist   map[string]time.Time
 
 	// Phase 3: subtask queue
 	q         *queue.Queue
@@ -116,17 +116,17 @@ func (s *Scheduler) TaskLabel(taskID string) string {
 
 func New(db *mongo.Database, rdb *redis.Client, nm *grpcsvr.NodeManager, h *hub.Hub, tp *taskprogress.Store, notifier *notify.Notifier, log *zap.Logger, blRepo *repositories.BlacklistRepo, settings *repositories.SettingsRepo) *Scheduler {
 	return &Scheduler{
-		db:       db,
-		rdb:      rdb,
-		nm:       nm,
-		hub:      h,
-		taskProg: tp,
-		notifier: notifier,
-		log:      log,
-		blRepo:   blRepo,
-		settings: settings,
-		q:        queue.New(rdb),
-		dedup:    dedup.New(rdb),
+		db:              db,
+		rdb:             rdb,
+		nm:              nm,
+		hub:             h,
+		taskProg:        tp,
+		notifier:        notifier,
+		log:             log,
+		blRepo:          blRepo,
+		settings:        settings,
+		q:               queue.New(rdb),
+		dedup:           dedup.New(rdb),
 		progressPersist: make(map[string]time.Time),
 	}
 }
@@ -367,6 +367,30 @@ func (s *Scheduler) dispatchViaQueue(ctx context.Context, task *models.Task) err
 	s.injectSubdomainWordlists(ctx, task.Config.Stages, params)
 	s.injectSystemProxy(ctx, params)
 	task.Config.Params = params
+	// HTTP-family stages must also probe subdomains discovered earlier and
+	// stored for this project; otherwise queue mode only receives the original
+	// root targets and silently misses live subdomains.
+	if len(task.Config.Stages) > 0 && isHTTPProbeStage(task.Config.Stages[0]) {
+		cur, err := s.db.Collection("assets_subdomain").Find(ctx, bson.M{"project_id": task.ProjectID})
+		if err == nil {
+			defer cur.Close(ctx)
+			seen := make(map[string]struct{}, len(task.Targets))
+			for _, target := range task.Targets {
+				seen[target] = struct{}{}
+			}
+			for cur.Next(ctx) {
+				var asset struct {
+					Domain string `bson:"domain"`
+				}
+				if cur.Decode(&asset) == nil && asset.Domain != "" {
+					if _, ok := seen[asset.Domain]; !ok {
+						task.Targets = append(task.Targets, asset.Domain)
+						seen[asset.Domain] = struct{}{}
+					}
+				}
+			}
+		}
+	}
 	if s.blRepo != nil {
 		rules, _ := s.blRepo.List(ctx)
 		for _, r := range rules {
@@ -381,9 +405,10 @@ func (s *Scheduler) dispatchViaQueue(ctx context.Context, task *models.Task) err
 	now := time.Now()
 	_, err = s.db.Collection("tasks").UpdateByID(ctx, task.ID, bson.M{
 		"$set": bson.M{
-			"status":     models.TaskStatusDispatched,
-			"updated_at": now,
-			"started_at": now,
+			"status":        models.TaskStatusDispatched,
+			"config.params": params,
+			"updated_at":    now,
+			"started_at":    now,
 		},
 	})
 	if err != nil {
@@ -410,6 +435,24 @@ func (s *Scheduler) dispatchViaQueue(ctx context.Context, task *models.Task) err
 	)
 	return nil
 }
+
+func isHTTPProbeStage(stage string) bool {
+	switch stage {
+	case "http", "httpx":
+		return true
+	}
+	return false
+}
+
+func isHTTPConsumerStage(stage string) bool {
+	switch stage {
+	case "crawler", "nuclei", "vuln", "dir", "sensitive":
+		return true
+	}
+	return false
+}
+
+func isPortConsumerStage(stage string) bool { return stage == "brute" }
 
 // dispatchLegacy is the Phase 1/2 single-node dispatch path.
 func (s *Scheduler) dispatchLegacy(ctx context.Context, task *models.Task) error {
@@ -528,7 +571,9 @@ func (s *Scheduler) OnResult(r *scanv1.TaskResult) {
 		return
 	}
 	doc["project_id"] = pid
-	var owner struct { UserID primitive.ObjectID `bson:"user_id"` }
+	var owner struct {
+		UserID primitive.ObjectID `bson:"user_id"`
+	}
 	if err := s.db.Collection("tasks").FindOne(context.Background(), bson.M{"_id": taskID}).Decode(&owner); err == nil && !owner.UserID.IsZero() {
 		doc["user_id"] = owner.UserID
 	}
@@ -597,8 +642,10 @@ func (s *Scheduler) OnResult(r *scanv1.TaskResult) {
 		}
 		delete(doc, "sources")
 		update := bson.M{"$set": doc, "$setOnInsert": setOnInsert}
+		update["$addToSet"] = bson.M{"task_ids": bson.M{"$each": []interface{}{taskID, r.TaskId}}}
 		if len(sourcesToAdd) > 0 {
-			update["$addToSet"] = bson.M{"sources": bson.M{"$each": sourcesToAdd}}
+			add := update["$addToSet"].(bson.M)
+			add["sources"] = bson.M{"$each": sourcesToAdd}
 		}
 
 		tracked := r.ResultType == "subdomain" || r.ResultType == "port" || r.ResultType == "http"
@@ -1286,7 +1333,7 @@ func (s *Scheduler) loadDictLines(ctx context.Context, id primitive.ObjectID) ([
 func (s *Scheduler) injectSubdomainWordlists(ctx context.Context, stages []string, params map[string]string) {
 	hasSub := false
 	for _, st := range stages {
-		if st == "subdomain" {
+		if st == "subdomain" || st == "shuffledns" {
 			hasSub = true
 			break
 		}
@@ -1295,6 +1342,9 @@ func (s *Scheduler) injectSubdomainWordlists(ctx context.Context, stages []strin
 		return
 	}
 	raw := strings.TrimSpace(params["subdomain.wordlist"])
+	if raw == "" {
+		raw = strings.TrimSpace(params["shuffledns.wordlist"])
+	}
 	var ids []primitive.ObjectID
 	if raw != "" {
 		for _, idStr := range strings.Split(raw, ",") {
@@ -1339,6 +1389,7 @@ func (s *Scheduler) injectSubdomainWordlists(ctx context.Context, stages []strin
 	lines = dedupPreserveOrder(lines)
 	if len(lines) > 0 {
 		params["subdomain.wordlist_lines"] = strings.Join(lines, "\n")
+		params["shuffledns.wordlist_lines"] = strings.Join(lines, "\n")
 		s.log.Info("injectSubdomainWordlists: 注入完成", zap.Int("dicts", len(ids)), zap.Int("lines", len(lines)))
 	}
 }
@@ -1438,7 +1489,23 @@ func (s *Scheduler) ListDeadLetterByTask(ctx context.Context, taskID string) ([]
 
 // RetryDeadLetter resets and re-enqueues a dead-lettered subtask.
 func (s *Scheduler) RetryDeadLetter(ctx context.Context, subtaskID string) error {
-	return s.q.RetryDeadLetter(ctx, subtaskID)
+	st, err := s.q.RetryDeadLetter(ctx, subtaskID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	_, err = s.db.Collection("tasks").UpdateOne(ctx, bson.M{
+		"_id":    st.TaskID,
+		"status": models.TaskStatusFailed,
+	}, bson.M{
+		"$set": bson.M{
+			"status":     models.TaskStatusRunning,
+			"error":      "",
+			"updated_at": now,
+		},
+		"$unset": bson.M{"done_at": ""},
+	})
+	return err
 }
 
 // ListSubtasks returns all subtask metadata for a given task from Redis.

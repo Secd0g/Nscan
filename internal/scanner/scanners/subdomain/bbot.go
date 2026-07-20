@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/yourname/nscan/internal/scanner/engine"
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 	"github.com/yourname/nscan/pkg/models"
 	"go.uber.org/zap"
 )
@@ -28,6 +29,12 @@ const BbotStageName = "bbot"
 type BbotStage struct {
 	log *zap.Logger
 }
+
+// BBOT installs/checks shared Ansible collections in ~/.config and ~/.ansible
+// during startup. Running several scans concurrently makes ansible-galaxy
+// race on its temporary "targets" directory. Serialize invocations per
+// scanner process; BBOT still performs its own internal enumeration work.
+var bbotRunMu sync.Mutex
 
 func NewBbotStage(log *zap.Logger) *BbotStage {
 	return &BbotStage{log: log}
@@ -114,7 +121,8 @@ func (s *BbotStage) Run(
 			mu.Lock()
 			subdomains = append(subdomains, sub)
 			mu.Unlock()
-			asset := &models.SubdomainAsset{Domain: sub, Sources: []string{BbotStageName}}
+			ips, _ := dnsresolver.LookupHost(tctx, params["resolvers"], sub)
+			asset := &models.SubdomainAsset{Domain: sub, IPs: ips, Sources: []string{BbotStageName}}
 			r, _ := engine.NewResult("subdomain", asset)
 			select {
 			case results <- r:
@@ -178,6 +186,9 @@ func writeBbotSecrets(pkJSON string) error {
 }
 
 func runBbot(ctx context.Context, path, domain string, progress chan<- *engine.Progress, emit func(string)) error {
+	bbotRunMu.Lock()
+	defer bbotRunMu.Unlock()
+
 	// 用域名 MD5 作为扫描名，固定输出路径，与 scope-sentry 保持一致
 	scanName := fmt.Sprintf("%x", md5.Sum([]byte(domain)))
 	outDir := filepath.Join(os.TempDir(), "nscan_bbot_results")

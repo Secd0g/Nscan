@@ -352,9 +352,26 @@ func (s *Server) handleScannerMessage(ctx context.Context, nodeID string, msg *s
 	case *scanv1.ScannerMessage_SubtaskProgress:
 		sp := p.SubtaskProgress
 		if sp.Log != "" {
-			logMsg := fmt.Sprintf("[subtask:%s/%s] %s", shortID(sp.SubtaskId), sp.Stage, sp.Log)
+			label := shortID(sp.TaskId)
+			if s.handler != nil && sp.TaskId != "" {
+				label = s.handler.TaskLabel(sp.TaskId)
+			}
+			logMsg := fmt.Sprintf("[%s/%s] %s", label, sp.Stage, sp.Log)
 			s.nodeLog.Append(nodeID, logMsg, sp.Level)
 			s.hub.Publish("node:"+nodeID, hub.Event{Kind: "log", Log: logMsg, Level: sp.Level})
+		}
+		// Queue-mode stages report SubtaskProgress instead of TaskProgress.
+		// Forward it through the task handler too, otherwise the event is only
+		// visible in node logs and never reaches task details or log replay.
+		if s.handler != nil {
+			s.handler.OnProgress(&scanv1.TaskProgress{
+				TaskId:  sp.TaskId,
+				Stage:   sp.Stage,
+				Percent: sp.Percent,
+				Message: sp.Message,
+				Log:     sp.Log,
+				Level:   sp.Level,
+			})
 		}
 
 	case *scanv1.ScannerMessage_SubtaskComplete:

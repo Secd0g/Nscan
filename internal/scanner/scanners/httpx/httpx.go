@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 	"github.com/yourname/nscan/internal/scanner/engine"
 	"github.com/yourname/nscan/pkg/models"
 	"go.uber.org/zap"
@@ -66,6 +67,16 @@ func (s *Stage) Run(
 		engine.SendLog(progress, StageName, "warn", "[http] 无可探测 URL, 跳过")
 		return nil, nil
 	}
+	// When connecting directly, resolve each hostname once before probing both
+	// schemes. This avoids repeating the same Docker DNS error for http/https
+	// and skips names that cannot possibly produce an HTTP asset.
+	if params["global_proxy"] == "" {
+		urls = filterResolvableURLs(ctx, urls, dnsresolver.Resolver(params["resolvers"]), progress)
+		if len(urls) == 0 {
+			engine.SendLog(progress, StageName, "warn", "[http] 所有域名均无法解析, 跳过")
+			return nil, nil
+		}
+	}
 	var httpURLs []string
 	techMap := make(map[string][]string)
 	total := len(urls)
@@ -73,13 +84,29 @@ func (s *Stage) Run(
 	engine.SendLog(progress, StageName, "info", fmt.Sprintf("[http] 开始探测 %d 个 URL", total))
 
 	var client *http.Client = s.client
+	// Use the scan's resolver for outbound HTTP lookups as well. The default is
+	// 8.8.8.8; a task-level `resolvers` value overrides it.
+	transport := s.client.Transport.(*http.Transport).Clone()
+	resolver := dnsresolver.Resolver(params["resolvers"])
+	transport.DialContext = func(dialCtx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		ips, err := resolver.LookupHost(dialCtx, host)
+		if err != nil || len(ips) == 0 {
+			return nil, err
+		}
+		dialer := net.Dialer{Timeout: 10 * time.Second}
+		return dialer.DialContext(dialCtx, network, net.JoinHostPort(ips[0], port))
+	}
+	client = &http.Client{Timeout: s.client.Timeout, Transport: transport, CheckRedirect: s.client.CheckRedirect}
 	if proxy := params["global_proxy"]; proxy != "" {
 		if proxyURL, err := url.Parse(proxy); err == nil {
-			tr := s.client.Transport.(*http.Transport).Clone()
-			tr.Proxy = http.ProxyURL(proxyURL)
+			transport.Proxy = http.ProxyURL(proxyURL)
 			client = &http.Client{
 				Timeout:       s.client.Timeout,
-				Transport:     tr,
+				Transport:     transport,
 				CheckRedirect: s.client.CheckRedirect,
 			}
 		}
@@ -127,6 +154,14 @@ func (s *Stage) Run(
 		if doScreenshot {
 			asset.ScreenshotPNG = captureScreenshot(tctx, rawURL)
 		}
+		if asset.IP == "" {
+			if parsed, parseErr := url.Parse(rawURL); parseErr == nil {
+				lookupCtx, cancel := context.WithTimeout(tctx, 3*time.Second)
+				ips, _ := dnsresolver.LookupHost(lookupCtx, params["resolvers"], parsed.Hostname())
+				cancel()
+				if len(ips) > 0 { asset.IP = ips[0] }
+			}
+		}
 
 		r, _ := engine.NewResult("http", asset)
 		select {
@@ -134,14 +169,14 @@ func (s *Stage) Run(
 		case <-tctx.Done():
 			return tctx.Err()
 		}
-		
+
 		mu.Lock()
 		httpURLs = append(httpURLs, rawURL)
 		if len(asset.Tech) > 0 {
 			techMap[rawURL] = asset.Tech
 		}
 		mu.Unlock()
-		
+
 		engine.SendLog(progress, StageName, "info", fmt.Sprintf("[http] %s [%d] %s", rawURL, asset.StatusCode, asset.Title))
 
 		d := done.Add(1)
@@ -150,7 +185,7 @@ func (s *Stage) Run(
 		case progress <- &engine.Progress{Stage: StageName, Percent: pct, Message: rawURL}:
 		default:
 		}
-		
+
 		return nil
 	})
 	engine.SendLog(progress, StageName, "info", fmt.Sprintf("[http] 探测完成, %d/%d 存活", len(httpURLs), total))
@@ -282,6 +317,7 @@ func buildURLs(input *engine.StageInput) []string {
 	}
 
 	addHost := func(host string) {
+		host = normalizeEndpoint(host)
 		// 如果 host 是 IP:Port 形式，直接构建 http/https URL
 		// 如果端口是 443/8443 等，优先构建 https
 		h, p, err := net.SplitHostPort(host)
@@ -328,6 +364,70 @@ func buildURLs(input *engine.StageInput) []string {
 	return urls
 }
 
+// normalizeEndpoint repairs endpoint values emitted by upstream asset sources
+// that accidentally append the same port twice (for example host:443:443).
+func normalizeEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	parts := strings.Split(endpoint, ":")
+	if len(parts) == 3 && parts[0] != "" && parts[1] == parts[2] && isNumericPort(parts[1]) {
+		return parts[0] + ":" + parts[1]
+	}
+	return endpoint
+}
+
+func isNumericPort(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+type hostResolver interface {
+	LookupHost(context.Context, string) ([]string, error)
+}
+
+func filterResolvableURLs(ctx context.Context, urls []string, resolver hostResolver, progress chan<- *engine.Progress) []string {
+	resolved := make(map[string]bool)
+	kept := make([]string, 0, len(urls))
+	for _, rawURL := range urls {
+		u, err := url.Parse(rawURL)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		host := strings.ToLower(u.Hostname())
+		if net.ParseIP(host) != nil {
+			kept = append(kept, rawURL)
+			continue
+		}
+		ok, checked := resolved[host]
+		if !checked {
+			lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			_, lookupErr := resolver.LookupHost(lookupCtx, host)
+			cancel()
+			// Only a definitive NXDOMAIN/not-found response justifies dropping
+			// the URL. Resolver timeouts, Docker DNS outages, and other
+			// transient errors should still be probed; the HTTP client may use a
+			// different resolver/network path or the host may be reachable via a
+			// configured route.
+			// Resolution is advisory only. HTTP probing must still run because
+			// asset discovery may have resolved the host through another DNS
+			// path, or the HTTP transport may use a different route.
+			ok = true
+			resolved[host] = ok
+			_ = lookupErr
+		}
+		if ok {
+			kept = append(kept, rawURL)
+		}
+	}
+	return kept
+}
+
 func extractTitle(body string) string {
 	m := titleRe.FindStringSubmatch(body)
 	if len(m) < 2 {
@@ -351,8 +451,19 @@ func (s *Stage) detectTech(header http.Header, body string) []string {
 	combined := body + "\n" + server
 	matched := s.matcher.Match(combined)
 	tech = append(tech, matched...)
-
-	return tech
+	seen := make(map[string]struct{}, len(tech))
+	unique := make([]string, 0, len(tech))
+	for _, value := range tech {
+		value = strings.TrimSpace(value)
+		key := strings.ToLower(value)
+		if value != "" {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				unique = append(unique, value)
+			}
+		}
+	}
+	return unique
 }
 
 // normalizeURL 将 http://host:443 这类方案/端口不匹配的 URL 规范化，

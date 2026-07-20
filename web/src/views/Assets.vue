@@ -109,62 +109,35 @@
                   </template>
                 </el-popconfirm>
               </div>
-              <el-table :data="asset.list" v-loading="asset.loading" style="width:100%" size="small" stripe
+              <el-table ref="assetTableRef" :data="asset.list" v-loading="asset.loading" style="width:100%" size="small" stripe border
                 :header-cell-style="{ background: 'var(--el-fill-color-light)', color: 'var(--el-text-color-primary)', fontWeight: 600, fontSize: '13px' }"
+                @scroll="syncAssetTableHeader"
                 @selection-change="(rows: any[]) => assetSelected = rows">
                 <el-table-column type="selection" width="42" />
                 <el-table-column type="index" label="序号" width="55" />
-                <el-table-column label="域名" min-width="180" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    <a class="asset-link" :href="row.url" target="_blank">{{ row.domain || row.url }}</a>
-                  </template>
+                <el-table-column label="域名" min-width="220"><template #default="{ row }"><a class="asset-link full-domain" :href="assetURL(row.url)" target="_blank" rel="noopener noreferrer">{{ row.domain || row.url }}</a></template></el-table-column>
+                <el-table-column label="IP" width="140"><template #default="{ row }">{{ row.ip || '-' }}</template></el-table-column>
+                <el-table-column label="端口/服务" width="100"><template #default="{ row }"><el-tag v-if="row.port" type="info" size="small" @click="addTag('port', row.port)">{{ row.port }}</el-tag><span v-else>-</span></template></el-table-column>
+                <el-table-column label="状态码" width="80"><template #default="{ row }"><span v-if="row.status_code" class="status-code" :style="{ color: statusColor(row.status_code) }">{{ row.status_code }}</span><span v-else>-</span></template></el-table-column>
+                <el-table-column label="标题" min-width="130"><template #default="{ row }">{{ row.title || '-' }}</template></el-table-column>
+                <el-table-column label="响应头" min-width="110"><template #default="{ row }">{{ row.banner || '-' }}</template></el-table-column>
+                <el-table-column label="应用/组件" min-width="140"><template #default="{ row }"><el-tag v-for="t in uniqueTech(row.tech)" :key="t" type="success" size="small" style="margin-right:4px" @click="addTag('app', t)">{{ t }}</el-tag><span v-if="!uniqueTech(row.tech).length">-</span></template></el-table-column>
+                <el-table-column prop="content_len" label="大小" width="90" align="center">
+                  <template #default="{ row }">{{ row.content_len > 0 ? fmtBytes(row.content_len) : '-' }}</template>
                 </el-table-column>
-                <el-table-column label="IP" width="140">
-                  <template #default="{ row }">
-                    <span v-if="row.ip" style="font-family:monospace;font-size:12px">{{ row.ip }}</span>
-                    <span v-else style="color:var(--el-text-color-disabled)">—</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="端口/服务" width="100">
-                  <template #default="{ row }">
-                    <el-tag v-if="row.port" type="info" size="small" style="font-family:monospace" @click="addTag('port', row.port)">{{ row.port }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态码" width="80">
-                  <template #default="{ row }">
-                    <span v-if="row.status_code" class="status-code" :style="{ color: statusColor(row.status_code) }">{{ row.status_code }}</span>
-                    <span v-else style="color: var(--el-text-color-placeholder)">—</span>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
-<el-table-column label="响应头" min-width="130" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    <span style="font-family:monospace;font-size:11px;color:var(--el-text-color-secondary)">{{ row.banner || '—' }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="应用/组件" min-width="180">
-                  <template #default="{ row }">
-                    <el-tag v-for="t in row.tech" :key="t" type="success" size="small" style="margin-right:4px;cursor:pointer" @click="addTag('app', t)">{{ t }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="大小" width="90">
-                  <template #default="{ row }">{{ fmtBytes(row.content_len) }}</template>
-                </el-table-column>
-                <el-table-column label="截图" width="140">
+                <el-table-column prop="screenshot" label="截图" width="140" align="center">
                   <template #default="{ row }">
                     <img v-if="row.screenshot" :src="`/images/screenshots/${row.screenshot}.png`"
-                      style="width:120px;height:auto;max-height:80px;cursor:pointer;border-radius:4px"
-                      @error="(e: any) => e.target.style.display='none'"
+                      style="display:block;width:120px;height:auto;max-height:80px;margin:auto;cursor:pointer;border-radius:4px;object-fit:contain"
                       @click="previewSrc=`/images/screenshots/${row.screenshot}.png`" />
+                    <span v-else>-</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="发现时间" width="170">
-                  <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
+                <el-table-column prop="created_at" label="发现时间" width="170" align="center">
+                  <template #default="{ row }">{{ row.created_at ? fmtTime(row.created_at) : '-' }}</template>
                 </el-table-column>
-                <el-table-column label="操作" width="70" fixed="right">
-                  <template #default="{ row }">
-                    <el-button type="primary" link size="small" @click="openAssetDetail(row)">详情</el-button>
-                  </template>
+                <el-table-column label="操作" width="70" align="center">
+                  <template #default="{ row }"><el-button type="primary" link size="small" @click="openAssetDetail(row)">详情</el-button></template>
                 </el-table-column>
               </el-table>
             </template>
@@ -184,7 +157,7 @@
                       <span class="card-title">{{ item.title || '无标题' }}</span>
                       <span v-if="item.status_code" :style="{ color: statusColor(item.status_code), fontWeight: 600, fontSize: '12px' }">{{ item.status_code }}</span>
                     </div>
-                    <a class="card-url" :href="item.url" target="_blank" @click.stop>{{ item.url }}</a>
+                    <a class="card-url" :href="assetURL(item.url)" target="_blank" @click.stop>{{ item.url }}</a>
                     <div class="card-tags">
                       <el-tag v-if="item.port" size="small" type="info" style="font-family:monospace">{{ item.port }}</el-tag>
                       <el-tag v-for="t in (item.tech||[]).slice(0,2)" :key="t" size="small" type="success">{{ t }}</el-tag>
@@ -267,14 +240,14 @@
             <el-table-column label="端口" width="80">
               <template #default="{ row }"><el-tag v-if="row.port" type="info" size="small" style="font-family:monospace">{{ row.port }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="域名" min-width="180" show-overflow-tooltip>
-              <template #default="{ row }">
-                <a v-if="row.domain" class="asset-link" :href="'http://'+row.domain" target="_blank">{{ row.domain }}</a>
-                <span v-else style="color:var(--el-text-color-disabled)">—</span>
-              </template>
-            </el-table-column>
             <el-table-column label="服务" width="100">
               <template #default="{ row }"><el-tag v-if="row.service" size="small">{{ row.service }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="域名" min-width="240">
+              <template #default="{ row }">
+                <span v-if="row.domains?.length" class="full-domain">{{ row.domains.join(', ') }}</span>
+                <span v-else style="color:var(--el-text-color-disabled)">—</span>
+              </template>
             </el-table-column>
             <el-table-column label="Web Server" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
@@ -368,9 +341,9 @@
           :cell-style="{ fontSize: '13px' }"
           @selection-change="(rows: any[]) => subSelected = rows">
           <el-table-column type="selection" width="42" />
-          <el-table-column label="域名" min-width="220" show-overflow-tooltip>
+          <el-table-column label="域名" min-width="300">
             <template #default="{ row }">
-              <a class="asset-link" :href="`http://${row.domain}`" target="_blank">{{ row.domain }}</a>
+              <a class="asset-link" :href="assetURL(row.domain)" target="_blank">{{ row.domain }}</a>
             </template>
           </el-table-column>
           <el-table-column label="类型" width="80" align="center">
@@ -455,7 +428,7 @@
           </el-table-column>
           <el-table-column label="目标" min-width="200" show-overflow-tooltip>
             <template #default="{ row }">
-              <a class="asset-link" :href="row.target" target="_blank" @click.stop>{{ row.target }}</a>
+              <a class="asset-link" :href="assetURL(row.target)" target="_blank" rel="noopener noreferrer" @click.stop>{{ row.target }}</a>
             </template>
           </el-table-column>
           <el-table-column prop="matched_at" label="匹配位置" min-width="180" show-overflow-tooltip />
@@ -518,7 +491,7 @@
           <el-table-column type="selection" width="42" />
           <el-table-column label="URL" min-width="280" show-overflow-tooltip>
             <template #default="{ row }">
-              <a class="asset-link" :href="row.url" target="_blank">{{ row.url }}</a>
+              <a class="asset-link" :href="assetURL(row.url)" target="_blank">{{ row.url }}</a>
             </template>
           </el-table-column>
           <el-table-column prop="path" label="路径" min-width="160" show-overflow-tooltip>
@@ -569,7 +542,7 @@
           <el-table-column type="selection" width="42" />
           <el-table-column label="URL" min-width="300" show-overflow-tooltip>
             <template #default="{ row }">
-              <a class="asset-link" :href="row.url" target="_blank" @click.stop>{{ row.url }}</a>
+              <a class="asset-link" :href="assetURL(row.url)" target="_blank" @click.stop>{{ row.url }}</a>
             </template>
           </el-table-column>
           <el-table-column label="标题" min-width="180" show-overflow-tooltip>
@@ -662,7 +635,7 @@
               </el-table-column>
               <el-table-column label="URL" min-width="240" show-overflow-tooltip>
                 <template #default="{ row }">
-                  <a class="asset-link" :href="row.url" target="_blank" @click.stop>{{ row.url }}</a>
+                  <a class="asset-link" :href="assetURL(row.url)" target="_blank" @click.stop>{{ row.url }}</a>
                 </template>
               </el-table-column>
               <el-table-column label="命中内容" min-width="240" show-overflow-tooltip>
@@ -719,7 +692,7 @@
           <div class="detail-label">基础信息</div>
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="URL" :span="2">
-              <a class="asset-link" :href="assetDetail.url" target="_blank">{{ assetDetail.url }}</a>
+              <a class="asset-link" :href="assetURL(assetDetail.url)" target="_blank">{{ assetDetail.url }}</a>
             </el-descriptions-item>
             <el-descriptions-item label="状态码">
               <span :style="{ color: statusColor(assetDetail.status_code), fontWeight: 600 }">{{ assetDetail.status_code }}</span>
@@ -821,11 +794,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  assetApi, projectApi, taskApi,
+  assetApi, projectApi, taskApi, subscribeTaskProgress,
   type Project, type Task, type HTTPAsset, type VulnAsset, type VulnStatus, type StatItem, type IPAssetFlat,
 } from '@/api'
 
@@ -843,6 +816,47 @@ const stats = reactive({
   techs: [] as StatItem[],
 })
 const previewSrc = ref('')
+const assetTableRef = ref<{ doLayout: () => void; $el?: HTMLElement } | null>(null)
+
+function syncAssetTableHeader(position?: { scrollLeft?: number }) {
+  nextTick(() => {
+    const root = assetTableRef.value?.$el
+    if (!root) return
+    const header = root.querySelector<HTMLElement>('.el-table__header-wrapper')
+    const body = root.querySelector<HTMLElement>('.el-table__body-wrapper .el-scrollbar__wrap')
+    if (!header) return
+    const scrollLeft = position?.scrollLeft ?? body?.scrollLeft ?? 0
+    if (header.scrollLeft !== scrollLeft) header.scrollLeft = scrollLeft
+  })
+}
+
+function layoutAssetTable() {
+  nextTick(() => {
+    assetTableRef.value?.doLayout()
+    syncAssetTableHeader()
+  })
+}
+
+function assetURL(value: string): string {
+  const raw = String(value || '').trim()
+  if (!raw) return '#'
+  const repaired = raw
+    .replace(/^(https?:\/\/[^/:]+):(\d+):\2(?:$|\/)/, '$1:$2')
+    .replace(/^([^/:]+):(\d+):\2$/, '$1:$2')
+  if (/^https?:\/\//i.test(repaired)) return repaired
+  const port = repaired.match(/:(\d+)$/)?.[1]
+  return `${port === '443' ? 'https' : 'http'}://${repaired}`
+}
+
+function uniqueTech(values: string[] = []): string[] {
+  const seen = new Set<string>()
+  return values.filter(value => {
+    const key = String(value || '').trim().toLowerCase()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
 
 // ── Chip interface ─────────────────────────────────────────────────────────────
 interface Chip { label: string; val: string; raw: string }
@@ -1125,7 +1139,10 @@ async function fetchAsset(reset = false) {
     ])
     asset.list = r.data ?? []; asset.total = r.total
     stats.ports = s.ports ?? []; stats.techs = s.techs ?? []
-  } finally { asset.loading = false }
+  } finally {
+    asset.loading = false
+    layoutAssetTable()
+  }
 }
 async function fetchIP(reset = false) {
   if (ip.view === 'agg') { fetchIPAgg(reset); return }
@@ -1214,13 +1231,36 @@ function sensSevType(sev: string): string {
 }
 
 function onTabChange(tab: string) {
-  if (tab === 'asset') fetchAsset()
+  if (tab === 'asset') { fetchAsset(); layoutAssetTable() }
   else if (tab === 'ip') fetchIP()
   else if (tab === 'subdomain') fetchSubdomain()
   else if (tab === 'vuln') fetchVuln()
   else if (tab === 'dir') fetchDir()
   else if (tab === 'crawler') fetchCrawler()
   else if (tab === 'sensitive') fetchSensitive()
+}
+
+function refreshActiveTab() {
+  onTabChange(activeTab.value)
+}
+
+let assetTaskWs: WebSocket | null = null
+function subscribeFilteredTask(taskID?: string) {
+  assetTaskWs?.close()
+  assetTaskWs = null
+  if (!taskID) return
+  assetTaskWs = subscribeTaskProgress(taskID, event => {
+    // Refresh once when persisted scan results for the task are complete.
+    if (event.kind === 'status' && ['done', 'failed'].includes(event.status ?? '')) {
+      refreshActiveTab()
+      assetTaskWs?.close()
+      assetTaskWs = null
+    }
+  })
+}
+
+function refreshWhenVisible() {
+  if (document.visibilityState === 'visible') { refreshActiveTab(); layoutAssetTable() }
 }
 function onGlobalFilter() {
   asset.page = 1; ip.page = 1; subdomain.page = 1; vuln.page = 1; sensitive.page = 1; dir.page = 1; crawler.page = 1
@@ -1303,9 +1343,41 @@ onMounted(async () => {
     taskApi.list({ limit: 200 }).catch(() => ({ data: [], total: 0 })),
   ])
   projects.value = pRes.data ?? []; tasks.value = tRes.data ?? []
+  const requestedTab = String(route.query.tab || '')
+  if (['asset', 'ip', 'subdomain', 'vuln', 'dir', 'crawler', 'sensitive'].includes(requestedTab)) {
+    activeTab.value = requestedTab
+  }
   if (route.query.task_id) filter.task_id = route.query.task_id as string
   if (route.query.project_id) filter.project_id = route.query.project_id as string
-  fetchAsset(); fetchIP(); fetchSubdomain(); fetchVuln(); fetchSensitive(); fetchDir()
+  fetchAsset(); fetchIP(); fetchSubdomain(); fetchVuln(); fetchSensitive(); fetchDir(); fetchCrawler()
+  subscribeFilteredTask(filter.task_id)
+  window.addEventListener('focus', refreshActiveTab)
+  window.addEventListener('resize', layoutAssetTable)
+  document.addEventListener('visibilitychange', refreshWhenVisible)
+  layoutAssetTable()
+})
+
+watch(
+  () => [route.query.project_id, route.query.task_id, route.query.tab],
+  ([projectID, taskID, tab]) => {
+    filter.project_id = projectID ? String(projectID) : undefined
+    filter.task_id = taskID ? String(taskID) : undefined
+    const requestedTab = String(tab || '')
+    if (['asset', 'ip', 'subdomain', 'vuln', 'dir', 'crawler', 'sensitive'].includes(requestedTab)) {
+      activeTab.value = requestedTab
+    }
+    subscribeFilteredTask(filter.task_id)
+    onGlobalFilter()
+  },
+)
+
+watch(() => filter.task_id, taskID => subscribeFilteredTask(taskID))
+
+onBeforeUnmount(() => {
+  assetTaskWs?.close()
+  window.removeEventListener('focus', refreshActiveTab)
+  window.removeEventListener('resize', layoutAssetTable)
+  document.removeEventListener('visibilitychange', refreshWhenVisible)
 })
 </script>
 
@@ -1383,6 +1455,7 @@ onMounted(async () => {
 .card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 
 .asset-link { color: var(--el-color-primary); text-decoration: none; font-size: 13px; }
+.full-domain { white-space: normal; overflow-wrap: anywhere; }
 .asset-link:hover { text-decoration: underline; }
 .status-code { font-family: monospace; font-weight: 600; }
 .ip-cell { display: flex; flex-direction: column; gap: 2px; }

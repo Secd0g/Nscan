@@ -2,12 +2,13 @@ package subdomain
 
 import (
 	"context"
-	"net"
 	"strings"
+
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 )
 
 // dnsRecordCollector 通过 DNS 记录（MX/NS/SOA/TXT/SRV/CNAME）发现关联子域名
-type dnsRecordCollector struct{}
+type dnsRecordCollector struct{ resolverConfig string }
 
 func (c *dnsRecordCollector) Name() string { return "dns-record" }
 
@@ -29,7 +30,7 @@ func (c *dnsRecordCollector) Collect(ctx context.Context, domain string) ([]stri
 		}
 	}
 
-	resolver := &net.Resolver{}
+	resolver := dnsresolver.Resolver(c.resolverConfig)
 
 	// MX 记录
 	if mxs, err := resolver.LookupMX(ctx, domain); err == nil {

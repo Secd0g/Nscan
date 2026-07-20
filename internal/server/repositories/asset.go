@@ -431,7 +431,9 @@ func assetFilter(f AssetFilter) bson.M {
 	}
 	if f.TaskID != "" {
 		if oid, err := primitive.ObjectIDFromHex(f.TaskID); err == nil {
-			filter["task_id"] = oid
+			filter["$or"] = []bson.M{{"task_id": oid}, {"task_id": f.TaskID}, {"task_ids": oid}, {"task_ids": f.TaskID}}
+		} else {
+			filter["task_id"] = f.TaskID
 		}
 	}
 	if f.ProjectID != "" {
@@ -501,14 +503,14 @@ func (r *AssetRepo) ListPorts(ctx context.Context, f AssetFilter) ([]models.Port
 		{{Key: "$limit", Value: f.Limit}},
 		{{Key: "$lookup", Value: bson.M{
 			"from": collHTTP,
-			"let":  bson.M{"p_ip": "$ip", "p_port": "$port"},
+			"let":  bson.M{"p_ip": "$ip", "p_port": "$port", "p_project": "$project_id"},
 			"pipeline": mongo.Pipeline{
 				{{Key: "$match", Value: bson.M{"$expr": bson.M{"$and": bson.A{
 					bson.M{"$eq": bson.A{"$ip", "$$p_ip"}},
 					bson.M{"$eq": bson.A{"$port", "$$p_port"}},
+					bson.M{"$eq": bson.A{"$project_id", "$$p_project"}},
 				}}}}},
-				{{Key: "$project", Value: bson.M{"tech": 1, "_id": 0}}},
-				{{Key: "$limit", Value: 5}},
+				{{Key: "$project", Value: bson.M{"tech": 1, "domain": 1, "_id": 0}}},
 			},
 			"as": "_http_matches",
 		}}},
@@ -518,6 +520,7 @@ func (r *AssetRepo) ListPorts(ctx context.Context, f AssetFilter) ([]models.Port
 				"initialValue": bson.A{},
 				"in":           bson.M{"$setUnion": bson.A{"$$value", "$$this"}},
 			}},
+			"domains": bson.M{"$setUnion": bson.A{"$_http_matches.domain", bson.A{}}},
 		}}},
 		{{Key: "$project", Value: bson.M{"_http_matches": 0}}},
 	}
@@ -525,6 +528,7 @@ func (r *AssetRepo) ListPorts(ctx context.Context, f AssetFilter) ([]models.Port
 	type portWithProducts struct {
 		models.PortAsset `bson:",inline"`
 		Products         []string `bson:"products"`
+		Domains          []string `bson:"domains"`
 	}
 
 	cursor, err := coll.Aggregate(ctx, pipeline)
@@ -540,6 +544,7 @@ func (r *AssetRepo) ListPorts(ctx context.Context, f AssetFilter) ([]models.Port
 	for i, row := range rows {
 		list[i] = row.PortAsset
 		list[i].Products = row.Products
+		list[i].Domains = row.Domains
 	}
 	return list, total, nil
 }
@@ -557,7 +562,26 @@ func (r *AssetRepo) ListHTTP(ctx context.Context, f AssetFilter) ([]models.HTTPA
 	}
 	defer cursor.Close(ctx)
 	var list []models.HTTPAsset
-	return list, total, cursor.All(ctx, &list)
+	if err := cursor.All(ctx, &list); err != nil {
+		return nil, 0, err
+	}
+	for i := range list {
+		seen := make(map[string]struct{}, len(list[i].Tech))
+		tech := list[i].Tech[:0]
+		for _, value := range list[i].Tech {
+			key := strings.ToLower(strings.TrimSpace(value))
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			tech = append(tech, value)
+		}
+		list[i].Tech = tech
+	}
+	return list, total, nil
 }
 
 func (r *AssetRepo) ListDirs(ctx context.Context, f AssetFilter) ([]models.DirAsset, int64, error) {
@@ -1127,7 +1151,9 @@ func (r *AssetRepo) BatchDelete(ctx context.Context, userID primitive.ObjectID, 
 		}
 	}
 	filter := bson.M{"_id": bson.M{"$in": oids}}
-	if !userID.IsZero() { filter["user_id"] = userID }
+	if !userID.IsZero() {
+		filter["user_id"] = userID
+	}
 	_, err := r.db.Collection(coll).DeleteMany(ctx, filter)
 	return err
 }
@@ -1141,7 +1167,7 @@ func (r *AssetRepo) DeleteByTaskID(ctx context.Context, taskID string) error {
 		conds = append(conds, bson.M{"task_id": oid})
 	}
 	filter := bson.M{"$or": conds}
-	for _, coll := range []string{collSubdomain, collPort, collHTTP, collVuln, collDir, collSensitive} {
+	for _, coll := range []string{collSubdomain, collPort, collHTTP, collVuln, collDir, collCrawler, collSensitive} {
 		if _, err := r.db.Collection(coll).DeleteMany(ctx, filter); err != nil {
 			return err
 		}
@@ -1204,7 +1230,7 @@ func (r *AssetRepo) DeleteOrphansByProject(ctx context.Context, projectID string
 			{"$or": orphanTaskConds},
 		},
 	}
-	for _, coll := range []string{collSubdomain, collPort, collHTTP, collVuln, collDir, collSensitive} {
+	for _, coll := range []string{collSubdomain, collPort, collHTTP, collVuln, collDir, collCrawler, collSensitive} {
 		if _, err := r.db.Collection(coll).DeleteMany(ctx, filter); err != nil {
 			return err
 		}

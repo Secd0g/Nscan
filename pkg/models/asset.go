@@ -29,6 +29,7 @@ type PortAsset struct {
 	Service   string             `bson:"service"       json:"service"`
 	Banner    string             `bson:"banner"        json:"banner"`
 	Products  []string           `bson:"-"             json:"products"` // 来自 HTTP 资产的 tech，$lookup 填充
+	Domains   []string           `bson:"-"             json:"domains"`  // 同一 IP:port 上的全部 HTTP 域名
 	Sources   []string           `bson:"sources"       json:"sources"`  // 所有发现来源，多工具累积
 	CreatedAt time.Time          `bson:"created_at"    json:"created_at"`
 }
@@ -45,8 +46,8 @@ type IPAsset struct {
 
 // IPPort 单个端口下挂的服务列表
 type IPPort struct {
-	Port   int         `bson:"port"   json:"port"`
-	Server []IPServer  `bson:"server" json:"server"`
+	Port   int        `bson:"port"   json:"port"`
+	Server []IPServer `bson:"server" json:"server"`
 }
 
 // IPServer 一个端口下的单个服务记录
@@ -129,11 +130,11 @@ type VulnAsset struct {
 	Name       string             `bson:"name"          json:"name"`
 	Severity   string             `bson:"severity"      json:"severity"` // "critical"|"high"|"medium"|"low"|"info"
 	MatchedAt  string             `bson:"matched_at"    json:"matched_at"`
-	Status    int                `bson:"status"        json:"status"`
-	Request   string             `bson:"request,omitempty"  json:"request,omitempty"`
-	Response  string             `bson:"response,omitempty" json:"response,omitempty"`
-	CreatedAt time.Time          `bson:"created_at"    json:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at"    json:"updated_at"`
+	Status     int                `bson:"status"        json:"status"`
+	Request    string             `bson:"request,omitempty"  json:"request,omitempty"`
+	Response   string             `bson:"response,omitempty" json:"response,omitempty"`
+	CreatedAt  time.Time          `bson:"created_at"    json:"created_at"`
+	UpdatedAt  time.Time          `bson:"updated_at"    json:"updated_at"`
 }
 
 // PassiveAsset 被动扫描发现的信息泄露资产

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yourname/nscan/internal/scanner/engine"
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 	"github.com/yourname/nscan/pkg/models"
 	"go.uber.org/zap"
 )
@@ -101,7 +102,8 @@ func (s *FindomainStage) Run(
 			subdomains = append(subdomains, sub)
 			mu.Unlock()
 			
-			asset := &models.SubdomainAsset{Domain: sub, Sources: []string{FindomainStageName}}
+			ips, _ := dnsresolver.LookupHost(tctx, params["resolvers"], sub)
+			asset := &models.SubdomainAsset{Domain: sub, IPs: ips, Sources: []string{FindomainStageName}}
 			r, _ := engine.NewResult("subdomain", asset)
 			select {
 			case results <- r:

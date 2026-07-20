@@ -314,28 +314,6 @@
             </el-collapse>
           </div>
 
-          <!-- Subtask list (Phase 3 queue mode) -->
-          <div class="detail-section" v-if="detailSubtasks.length">
-            <div class="section-title">
-              <el-icon><Connection /></el-icon> 子任务 ({{ detailSubtasks.length }})
-              <el-button size="small" link @click="loadSubtasks(detailTask.id)" style="margin-left:8px">刷新</el-button>
-            </div>
-            <el-table :data="detailSubtasks" size="small" style="width:100%">
-              <el-table-column prop="stage" label="阶段" width="100" />
-              <el-table-column prop="status" label="状态" width="90">
-                <template #default="{ row }">
-                  <el-tag :type="subtaskStatusType(row.status)" size="small">{{ row.status }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="目标数" width="72">
-                <template #default="{ row }">{{ row.targets?.length ?? 0 }}</template>
-              </el-table-column>
-              <el-table-column prop="leased_by" label="节点" min-width="80" show-overflow-tooltip />
-              <el-table-column prop="attempt" label="重试" width="60" />
-              <el-table-column prop="error_msg" label="错误" min-width="120" show-overflow-tooltip />
-            </el-table>
-          </div>
-
           <!-- Dead-letter panel (Phase 4) -->
           <div class="detail-section" v-if="deadLetterItems.length">
             <div class="section-title" style="color:var(--el-color-danger)">
@@ -365,11 +343,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { taskApi, projectApi, scanTemplateApi, nodeApi, pluginApi, dictApi, settingsApi, toolDefApi, subscribeTaskProgress, assetApi, type Task, type Project, type ScanTemplate, type Node, type Plugin, type ProgressEvent, type DictEntry, type StagePlugin as StagePluginType, type ToolDef, type Subtask } from '@/api'
-import { Loading, Clock, CircleCheck, CircleClose, Setting, Operation, Aim, Connection } from '@element-plus/icons-vue'
+import { Loading, Clock, CircleCheck, CircleClose, Setting, Operation, Aim } from '@element-plus/icons-vue'
 import { MODULE_ORDER, MODULE_LABELS, MODULE_ICONS, stageLabel as stageLabelHelper, stageModule, moduleLabel } from '@/constants/modules'
 import PluginConfigEditor from '@/components/PluginConfigEditor.vue'
 
@@ -388,6 +366,7 @@ const searchKeyword = ref('')
 const dialogVisible = ref(false)
 const progressMap = reactive<Record<string, { percent: number; stage: string; finished: boolean }>>({})
 const wsMap: Record<string, WebSocket> = {}
+let taskPollTimer: ReturnType<typeof setInterval> | null = null
 
 function statusType(s: string) {
   const m: Record<string, string> = { done: 'success', running: 'primary', failed: 'danger', queued: 'warning', dispatched: 'warning' }
@@ -416,7 +395,7 @@ async function fetchList() {
     const res = await taskApi.list({ project_id: filterProjectId.value, status: filterStatus.value, keyword: searchKeyword.value || undefined, limit: pageSize, skip: (page.value - 1) * pageSize })
     list.value = res.data ?? []; total.value = res.total
     for (const t of list.value) {
-      if (['running', 'dispatched'].includes(t.status) && !wsMap[t.id]) subscribeInline(t.id)
+      if (['queued', 'running', 'dispatched'].includes(t.status) && !wsMap[t.id]) subscribeInline(t.id)
     }
   } finally { loading.value = false }
 }
@@ -434,7 +413,8 @@ function subscribeInline(taskId: string) {
       const overall = idx >= 0
         ? Math.round(((idx + stagePct / 100) / total) * 100)
         : stagePct
-      progressMap[taskId] = { percent: overall, stage: ev.stage, finished: false }
+      const previous = progressMap[taskId]?.percent ?? 0
+      progressMap[taskId] = { percent: Math.max(previous, overall), stage: ev.stage, finished: false }
     }
     else if (ev.kind === 'log') {
       const item = list.value.find(t => t.id === taskId)
@@ -807,6 +787,14 @@ let detailWs: WebSocket | null = null
 // 按 taskId 缓存日志，关闭详情不清空，再次打开仍能看到历史
 const taskLogsCache = ref<Record<string, Record<string, string[]>>>({})
 const stageLogs = computed(() => taskLogsCache.value[detailTask.value?.id ?? ''] ?? {})
+
+function scrollDetailLogsToBottom() {
+	nextTick(() => {
+		for (const el of document.querySelectorAll<HTMLElement>('.stage-log-box')) {
+			el.scrollTop = el.scrollHeight
+		}
+	})
+}
 const pipelineLogs = computed(() => stageLogs.value._pipeline ?? [])
 
 // 按 module 分组的 stage 列表：[{ module, label, icon, stages: [...] }]
@@ -978,8 +966,10 @@ function openDetail(task: Task) {
 
     // Always reload log history when opening detail so stage states are current.
     taskApi.getLogs(full.id).then(logs => {
-      if (!logs?.length || detailTask.value?.id !== full.id) return
-      for (const ev of logs) handleDetailEvent(ev)
+      if (logs?.length && detailTask.value?.id === full.id) {
+        for (const ev of logs) handleDetailEvent(ev)
+      }
+      scrollDetailLogsToBottom()
     }).catch(() => {})
 
     if (['running', 'dispatched'].includes(full.status)) {
@@ -1081,11 +1071,19 @@ onMounted(async () => {
   fetchTemplates()
   await Promise.all([fetchPlugins(), fetchDicts()])
   fetchList()
+  // WebSocket events are real-time, but a task can transition between the
+  // initial list fetch and socket registration. Reconcile row status from the
+  // server periodically so queued/dispatched/done transitions cannot remain
+  // stale in the task table.
+  // Task WebSocket events update statuses and progress in real time. Avoid a
+  // periodic list replacement here: it disrupts clicks and selection state.
+  taskPollTimer = null
 })
 onUnmounted(() => {
   for (const ws of Object.values(wsMap)) ws.close()
   if (detailWs) { detailWs.close(); detailWs = null }
   if (aiPollTimer) clearInterval(aiPollTimer)
+  if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
 })
 </script>
 

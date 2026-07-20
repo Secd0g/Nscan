@@ -254,8 +254,10 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 		return
 	}
 	h.sched.CancelCleanup(c.Request.Context(), id.Hex())
-	if task != nil && task.NodeID != "" && (task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusPending) {
-		h.nm.CancelTask(task.NodeID, id.Hex())
+	if task != nil && (task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusDispatched || task.Status == models.TaskStatusPending || task.Status == models.TaskStatusQueued) {
+		// Queue-mode tasks are not pinned to a NodeID; broadcast so the node
+		// currently executing a leased subtask cancels its engine context.
+		_ = h.nm.SendCancelTask(id.Hex())
 	}
 	if c.Query("with_assets") == "true" {
 		_ = h.assets.DeleteByTaskID(c.Request.Context(), id.Hex())
@@ -354,8 +356,8 @@ func (h *Handler) BatchDeleteTasks(c *gin.Context) {
 		if task == nil { continue }
 		_ = h.tasks.DeleteForUser(ctx, id, uid)
 		h.sched.CancelCleanup(ctx, idStr)
-		if task != nil && task.NodeID != "" && (task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusPending) {
-			h.nm.CancelTask(task.NodeID, idStr)
+		if task != nil && (task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusDispatched || task.Status == models.TaskStatusPending || task.Status == models.TaskStatusQueued) {
+			_ = h.nm.SendCancelTask(idStr)
 		}
 		if req.WithAssets {
 			_ = h.assets.DeleteByTaskID(ctx, idStr)

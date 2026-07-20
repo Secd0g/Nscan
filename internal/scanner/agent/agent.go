@@ -281,6 +281,17 @@ func (a *Agent) handleServerMessage(ctx context.Context, connCancel context.Canc
 	case *scanv1.ServerMessage_Cancel:
 		a.log.Info("cancel task", zap.String("task_id", p.Cancel.TaskId))
 		a.engine.Cancel(p.Cancel.TaskId)
+		// Mirror cancellation into the server's node/task log stream. The
+		// scanner's local logger is not visible in node logs, which previously
+		// made a deleted task look as if its last subtask was still running.
+		if err := a.sendMsg(stream, &scanv1.ScannerMessage{Payload: &scanv1.ScannerMessage_Progress{Progress: &scanv1.TaskProgress{
+			TaskId: p.Cancel.TaskId,
+			Stage:  "_pipeline",
+			Log:    fmt.Sprintf("[task] cancellation requested: %s", p.Cancel.Reason),
+			Level:  "warn",
+		}}}); err != nil {
+			a.log.Warn("cancel log send failed", zap.Error(err))
+		}
 		if strings.HasPrefix(p.Cancel.TaskId, "ai:") {
 			a.cancelAIPentest(strings.TrimPrefix(p.Cancel.TaskId, "ai:"))
 		}

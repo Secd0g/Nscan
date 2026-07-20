@@ -224,6 +224,39 @@ func (q *Queue) Requeue(ctx context.Context, st *models.Subtask) error {
 	return err
 }
 
+// IsQueued reports whether the capability queue already contains this subtask.
+// Pending includes both queued and leased work, so the watchdog must make this
+// distinction before treating a missing lease as an orphan.
+func (q *Queue) IsQueued(ctx context.Context, capability, subtaskID string) (bool, error) {
+	items, err := q.rdb.LRange(ctx, queueKey(capability), 0, -1).Result()
+	if err != nil {
+		return false, err
+	}
+	for _, item := range items {
+		var st models.Subtask
+		if json.Unmarshal([]byte(item), &st) == nil && st.ID == subtaskID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (q *Queue) removeQueued(ctx context.Context, capability, subtaskID string) error {
+	items, err := q.rdb.LRange(ctx, queueKey(capability), 0, -1).Result()
+	if err != nil {
+		return err
+	}
+	pipe := q.rdb.Pipeline()
+	for _, item := range items {
+		var st models.Subtask
+		if json.Unmarshal([]byte(item), &st) == nil && st.ID == subtaskID {
+			pipe.LRem(ctx, queueKey(capability), 0, item)
+		}
+	}
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
 // DeadLetter moves a subtask to the dead-letter queue.
 func (q *Queue) DeadLetter(ctx context.Context, taskID string, st *models.Subtask, reason string) error {
 	metrics.DeadLetterTotal.WithLabelValues(st.Capability).Inc()
@@ -231,6 +264,9 @@ func (q *Queue) DeadLetter(ctx context.Context, taskID string, st *models.Subtas
 	st.ErrorMsg = reason
 	data, err := json.Marshal(st)
 	if err != nil {
+		return err
+	}
+	if err := q.removeQueued(ctx, st.Capability, st.ID); err != nil {
 		return err
 	}
 	pipe := q.rdb.Pipeline()
@@ -322,12 +358,12 @@ func (q *Queue) ListDeadLetterByTask(ctx context.Context, taskID string) ([]*mod
 
 // RetryDeadLetter removes a specific subtask from the dead-letter queue and
 // re-enqueues it with Attempt reset to 0.
-func (q *Queue) RetryDeadLetter(ctx context.Context, subtaskID string) error {
+func (q *Queue) RetryDeadLetter(ctx context.Context, subtaskID string) (*models.Subtask, error) {
 	var cursor uint64
 	for {
 		keys, next, err := q.rdb.Scan(ctx, cursor, "dead-letter:*", 100).Result()
 		if err != nil {
-			return fmt.Errorf("queue: scan dead-letter: %w", err)
+			return nil, fmt.Errorf("queue: scan dead-letter: %w", err)
 		}
 		for _, key := range keys {
 			items, err := q.rdb.LRange(ctx, key, 0, -1).Result()
@@ -347,7 +383,13 @@ func (q *Queue) RetryDeadLetter(ctx context.Context, subtaskID string) error {
 				st.Attempt = 0
 				st.Status = models.SubtaskPending
 				st.ErrorMsg = ""
-				return q.Enqueue(ctx, &st)
+				if err := q.removeQueued(ctx, st.Capability, st.ID); err != nil {
+					return nil, err
+				}
+				if err := q.Enqueue(ctx, &st); err != nil {
+					return nil, err
+				}
+				return &st, nil
 			}
 		}
 		cursor = next
@@ -355,7 +397,7 @@ func (q *Queue) RetryDeadLetter(ctx context.Context, subtaskID string) error {
 			break
 		}
 	}
-	return fmt.Errorf("queue: subtask %s not found in dead-letter", subtaskID)
+	return nil, fmt.Errorf("queue: subtask %s not found in dead-letter", subtaskID)
 }
 
 // ClearTask removes all Redis state for a completed/cancelled/rescanned task:

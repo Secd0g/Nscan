@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yourname/nscan/internal/scanner/engine"
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 	"github.com/yourname/nscan/pkg/models"
 	"go.uber.org/zap"
 )
@@ -114,8 +115,9 @@ func (s *ShufflednsStage) Run(
 			mu.Lock()
 			subdomains = append(subdomains, sub)
 			mu.Unlock()
-			
-			asset := &models.SubdomainAsset{Domain: sub, Sources: []string{ShufflednsStageName}}
+
+			ips, _ := dnsresolver.LookupHost(tctx, params["resolvers"], sub)
+			asset := &models.SubdomainAsset{Domain: sub, IPs: ips, Sources: []string{ShufflednsStageName}}
 			r, _ := engine.NewResult("subdomain", asset)
 			select {
 			case results <- r:
@@ -130,7 +132,7 @@ func (s *ShufflednsStage) Run(
 		case progress <- &engine.Progress{Stage: ShufflednsStageName, Percent: pct, Message: fmt.Sprintf("processed %s", target)}:
 		default:
 		}
-		
+
 		return err
 	})
 
@@ -169,7 +171,7 @@ func runShufflednsResolve(ctx context.Context, path, domain, resolveList, resolv
 
 func runShuffledns(ctx context.Context, path, domain string, extraArgs []string, resolvers string, progress chan<- *engine.Progress) ([]string, error) {
 	if resolvers == "" {
-		resolvers = "8.8.8.8\n1.1.1.1\n223.5.5.5\n114.114.114.114"
+		resolvers = "8.8.8.8"
 	}
 	rFile, err := os.CreateTemp("", "shuffledns_resolvers_*.txt")
 	if err != nil {
@@ -189,7 +191,9 @@ func runShuffledns(ctx context.Context, path, domain string, extraArgs []string,
 	outFile.Close()
 	defer os.Remove(outFile.Name())
 
-	args := append(extraArgs,
+	// Recent shuffledns releases require an explicit execution mode.
+	args := append([]string{"enum"}, extraArgs...)
+	args = append(args,
 		"-r", rFile.Name(),
 		"-o", outFile.Name(),
 		"-silent",

@@ -67,8 +67,8 @@ services:
       MAX_TASKS: ${MAX_TASKS:-5}
       REDIS_ADDR: redis:6379
       REDIS_PASS: ${REDIS_PASSWORD}
-      QUEUE_WORKERS: ${QUEUE_WORKERS:-0}
-      CAPABILITIES: ${CAPABILITIES:-search,subdomain,shuffledns,port,http,crawler,nuclei,brute,dir,sensitive,ai-pentest}
+      QUEUE_WORKERS: ${QUEUE_WORKERS:-1}
+      CAPABILITIES: ${CAPABILITIES:-search,subdomain,shuffledns,bbot,findomain,port,http,crawler,nuclei,brute,dir,sensitive,ai-pentest}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
     volumes:

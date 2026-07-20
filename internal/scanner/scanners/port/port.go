@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 	"github.com/yourname/nscan/internal/scanner/engine"
 	"github.com/yourname/nscan/pkg/models"
 	"go.uber.org/zap"
@@ -44,7 +45,7 @@ func (s *Stage) Run(
 	progress chan<- *engine.Progress,
 ) (*engine.StageInput, error) {
 
-	hosts := collectHosts(input)
+	hosts := collectHosts(ctx, input, params["resolvers"])
 	if len(hosts) == 0 {
 		engine.SendLog(progress, StageName, "warn", "[port] 无可扫描主机, 跳过")
 		return nil, nil
@@ -184,7 +185,7 @@ func (s *Stage) runNaabu(
 			State:    "open",
 			Service:  service,
 			Banner:   banner,
-			Sources: []string{"naabu"},
+			Sources:  []string{"naabu"},
 		}
 		r, _ := engine.NewResult("port", asset)
 		select {
@@ -263,7 +264,7 @@ func isOpen(ctx context.Context, host string, port int, timeout time.Duration) b
 	return true
 }
 
-func collectHosts(input *engine.StageInput) []string {
+func collectHosts(ctx context.Context, input *engine.StageInput, resolverConfig string) []string {
 	seen := make(map[string]struct{})
 	var hosts []string
 	add := func(h string) {
@@ -272,19 +273,30 @@ func collectHosts(input *engine.StageInput) []string {
 			hosts = append(hosts, h)
 		}
 	}
-	for _, t := range input.Targets {
+	addTarget := func(t string) {
 		if net.ParseIP(t) != nil {
 			add(t)
+			return
 		}
 		if strings.Contains(t, "/") {
 			ips, _ := expandCIDR(t)
 			for _, ip := range ips {
 				add(ip)
 			}
+			return
+		}
+		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ips, _ := dnsresolver.LookupHost(lookupCtx, resolverConfig, t)
+		cancel()
+		for _, ip := range ips {
+			add(ip)
 		}
 	}
+	for _, t := range input.Targets {
+		addTarget(t)
+	}
 	for _, sub := range input.Subdomains {
-		add(sub)
+		addTarget(sub)
 	}
 	return hosts
 }
@@ -370,8 +382,8 @@ func grabBanner(ctx context.Context, host string, port int, timeout time.Duratio
 	conn.SetReadDeadline(time.Now().Add(timeout))
 
 	probes := map[int][]byte{
-		80: []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
-		443: []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
+		80:   []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
+		443:  []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
 		8080: []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
 		8443: []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
 		8888: []byte("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"),
@@ -439,4 +451,3 @@ func guessService(port int) string {
 	}
 	return ""
 }
-

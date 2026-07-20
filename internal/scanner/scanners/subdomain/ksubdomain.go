@@ -9,12 +9,15 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	dnsresolver "github.com/yourname/nscan/internal/scanner/dns"
 )
 
 type ksubdomainCollector struct {
-	path          string
-	wordlistLines string
-	band          string
+	path           string
+	wordlistLines  string
+	band           string
+	resolverConfig string
 }
 
 func (c *ksubdomainCollector) Name() string { return "ksubdomain" }
@@ -163,7 +166,7 @@ func (c *ksubdomainCollector) fallbackDNSBrute(ctx context.Context, domain strin
 					return
 				default:
 					candidate := word + "." + domain
-					addrs, err := net.DefaultResolver.LookupHost(ctx, candidate)
+					addrs, err := dnsresolver.Resolver(c.resolverConfig).LookupHost(ctx, candidate)
 					if err != nil || len(addrs) == 0 {
 						continue
 					}

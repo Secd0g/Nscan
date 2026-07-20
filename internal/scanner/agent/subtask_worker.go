@@ -172,6 +172,15 @@ func (p *SubtaskWorkerPool) executeSubtask(ctx context.Context, st *models.Subta
 	stageCtx, cancelStage := context.WithTimeout(ctx, subtaskTimeout(st.Params))
 	runErr := p.eng.RunSingleStage(stageCtx, st.TaskID.Hex(), st.Stage, st.Targets, st.Params, st.Blacklist, results, progress)
 	cancelStage()
+	if runErr == nil {
+		// RunSingleStage intentionally executes only one stage and therefore
+		// does not emit the pipeline's normal 100% boundary event. Emit it here
+		// so task details can mark queue-mode stages complete after their logs.
+		select {
+		case progress <- &engine.Progress{Stage: st.Stage, Percent: 100, Message: "done"}:
+		case <-ctx.Done():
+		}
+	}
 	close(results)
 	close(progress)
 	collectWg.Wait()

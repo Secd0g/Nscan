@@ -194,6 +194,18 @@ func TestRequeue(t *testing.T) {
 	}
 }
 
+func TestIsQueued(t *testing.T) {
+	q, _ := newTestQueue(t)
+	ctx := context.Background()
+	st := subtask("search")
+	if err := q.Enqueue(ctx, st); err != nil { t.Fatal(err) }
+	queued, err := q.IsQueued(ctx, st.Capability, st.ID)
+	if err != nil || !queued { t.Fatalf("expected queued subtask: %v %v", queued, err) }
+	if _, err := q.BLPop(ctx, st.Capability, time.Second); err != nil { t.Fatal(err) }
+	queued, err = q.IsQueued(ctx, st.Capability, st.ID)
+	if err != nil || queued { t.Fatalf("popped subtask must not be queued: %v %v", queued, err) }
+}
+
 func TestDeadLetter(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
@@ -210,6 +222,10 @@ func TestDeadLetter(t *testing.T) {
 	count, _ := q.PendingCount(ctx, taskID)
 	if count != 0 {
 		t.Fatalf("pending count should be 0 after dead-letter, got %d", count)
+	}
+	queued, err := q.IsQueued(ctx, st.Capability, st.ID)
+	if err != nil || queued {
+		t.Fatalf("dead-lettered subtask must be removed from its work queue: %v %v", queued, err)
 	}
 }
 

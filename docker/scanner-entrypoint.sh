@@ -7,8 +7,8 @@ NODE_NAME="${NODE_NAME:-node-$(cat /proc/sys/kernel/random/uuid | cut -c1-8)}"
 MAX_TASKS="${MAX_TASKS:-5}"
 REDIS_ADDR="${REDIS_ADDR:-}"
 REDIS_PASS="${REDIS_PASS:-}"
-QUEUE_WORKERS="${QUEUE_WORKERS:-0}"
-CAPABILITIES="${CAPABILITIES:-search,subdomain,shuffledns,port,http,crawler,nuclei,brute,dir,sensitive,ai-pentest}"
+QUEUE_WORKERS="${QUEUE_WORKERS:-1}"
+CAPABILITIES="${CAPABILITIES:-search,subdomain,shuffledns,bbot,findomain,port,http,crawler,nuclei,brute,dir,sensitive,ai-pentest}"
 
 mkdir -p /app/configs
 
