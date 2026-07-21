@@ -9,8 +9,8 @@
 
     <el-table :data="jobs" v-loading="loading" style="width:100%">
       <el-table-column prop="name" label="任务名称" min-width="150" show-overflow-tooltip />
-      <el-table-column label="Cron" width="150">
-        <template #default="{ row }"><el-tag type="info" size="small"><code>{{ row.cron }}</code></el-tag></template>
+      <el-table-column label="执行计划" min-width="170">
+        <template #default="{ row }"><el-tag type="info" size="small">{{ describeCron(row.cron) }}</el-tag></template>
       </el-table-column>
       <el-table-column prop="project_name" label="所属项目" width="130" show-overflow-tooltip />
       <el-table-column label="扫描模块" min-width="220">
@@ -170,16 +170,52 @@
           </template>
         </template>
 
-        <!-- Cron 与启用（三种模式共用） -->
+        <!-- 通俗的执行计划配置，提交时转换成后端兼容的 Cron -->
         <el-row :gutter="16" style="margin-top:16px">
-          <el-col :span="16">
-            <el-form-item label="Cron 表达式" required>
-              <el-input v-model="form.cron" placeholder="如 0 2 * * * (每天凌晨2点)" />
-              <div style="font-size:11px;color:var(--el-text-color-secondary);margin-top:4px">分 时 日 月 周 — 标准5段 Cron；下次运行：{{ nextPreview }}</div>
-              <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-                <el-tag v-for="p in cronPresets" :key="p.cron" size="small" style="cursor:pointer"
-                  @click="form.cron = p.cron">{{ p.label }}</el-tag>
-              </div>
+          <el-col :span="8">
+            <el-form-item label="执行频率" required>
+              <el-select v-model="form.scheduleType" style="width:100%" @change="onScheduleTypeChange">
+                <el-option label="每隔一段时间" value="interval" />
+                <el-option label="每天" value="daily" />
+                <el-option label="每周" value="weekly" />
+                <el-option label="每月" value="monthly" />
+                <el-option v-if="form.scheduleType === 'advanced'" label="原有自定义计划" value="advanced" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8" v-if="form.scheduleType === 'interval'">
+            <el-form-item label="间隔时间" required>
+              <el-select v-model="form.intervalValue" style="width:48%">
+                <el-option v-for="v in intervalValues" :key="v" :label="String(v)" :value="v" />
+              </el-select>
+              <el-select v-model="form.intervalUnit" style="width:48%;margin-left:4%">
+                <el-option label="分钟" value="minute" />
+                <el-option label="小时" value="hour" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8" v-else-if="form.scheduleType === 'weekly'">
+            <el-form-item label="星期几" required>
+              <el-select v-model="form.weekday" style="width:100%">
+                <el-option v-for="d in weekdays" :key="d.value" :label="d.label" :value="d.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8" v-else-if="form.scheduleType === 'monthly'">
+            <el-form-item label="每月第几天" required>
+              <el-select v-model="form.monthday" style="width:100%">
+                <el-option v-for="d in 31" :key="d" :label="`${d} 日`" :value="d" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8" v-if="['daily', 'weekly', 'monthly'].includes(form.scheduleType)">
+            <el-form-item label="执行时间" required>
+              <el-time-picker v-model="form.time" format="HH:mm" value-format="HH:mm" style="width:100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8" v-if="form.scheduleType === 'advanced'">
+            <el-form-item label="原有计划">
+              <el-input :model-value="form.cron" disabled />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -188,6 +224,11 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <div class="schedule-preview">
+          <span>{{ scheduleSummary }}</span>
+          <span>下次运行：{{ nextPreview }}</span>
+          <span v-if="form.scheduleType === 'advanced'" class="schedule-warning">该任务的原有计划暂不支持图形化编辑，保存时会保持不变</span>
+        </div>
       </el-form>
 
       <template #footer>
@@ -243,10 +284,17 @@ interface FormState {
   node_ids: string[]
   template_id: string
   configMode: 'template' | 'task' | 'custom'
+  scheduleType: 'interval' | 'daily' | 'weekly' | 'monthly' | 'advanced'
+  intervalValue: number
+  intervalUnit: 'minute' | 'hour'
+  time: string
+  weekday: number
+  monthday: number
 }
 const emptyForm = (): FormState => ({
   name: '', project_id: '', cron: '0 2 * * *', enabled: true,
   node_ids: [], template_id: '', configMode: 'template',
+  scheduleType: 'daily', intervalValue: 15, intervalUnit: 'minute', time: '02:00', weekday: 1, monthday: 1,
 })
 const form = ref<FormState>(emptyForm())
 
@@ -369,12 +417,56 @@ function initCustomConfig() {
   }
 }
 
-const cronPresets = [
-  { label: '每小时', cron: '0 * * * *' },
-  { label: '每天2点', cron: '0 2 * * *' },
-  { label: '每周一9点', cron: '0 9 * * 1' },
-  { label: '每15分钟', cron: '*/15 * * * *' },
+const intervalValues = [5, 10, 15, 30, 60]
+const weekdays = [
+  { label: '星期一', value: 1 }, { label: '星期二', value: 2 }, { label: '星期三', value: 3 },
+  { label: '星期四', value: 4 }, { label: '星期五', value: 5 }, { label: '星期六', value: 6 }, { label: '星期日', value: 0 },
 ]
+
+function cronFromSchedule(): string {
+  if (form.value.scheduleType === 'advanced') return form.value.cron
+  const [hour, minute] = form.value.time.split(':').map(Number)
+  if (form.value.scheduleType === 'interval') {
+    return form.value.intervalUnit === 'minute'
+      ? `*/${form.value.intervalValue} * * * *`
+      : `0 */${form.value.intervalValue} * * *`
+  }
+  if (form.value.scheduleType === 'weekly') return `${minute} ${hour} * * ${form.value.weekday}`
+  if (form.value.scheduleType === 'monthly') return `${minute} ${hour} ${form.value.monthday} * *`
+  return `${minute} ${hour} * * *`
+}
+
+function scheduleFromCron(expr: string): Pick<FormState, 'scheduleType' | 'intervalValue' | 'intervalUnit' | 'time' | 'weekday' | 'monthday'> {
+  const fields = expr.trim().split(/\s+/)
+  const result = { scheduleType: 'advanced' as FormState['scheduleType'], intervalValue: 15, intervalUnit: 'minute' as FormState['intervalUnit'], time: '02:00', weekday: 1, monthday: 1 }
+  if (fields.length !== 5) return result
+  const [minute, hour, dom, month, dow] = fields
+  const time = /^\d+$/.test(minute) && /^\d+$/.test(hour) ? `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}` : ''
+  if (time && dom === '*' && month === '*' && dow === '*') return { ...result, scheduleType: 'daily', time }
+  if (time && dom === '*' && month === '*' && /^\d$/.test(dow)) return { ...result, scheduleType: 'weekly', time, weekday: Number(dow) }
+  if (time && /^\d+$/.test(dom) && month === '*' && dow === '*') return { ...result, scheduleType: 'monthly', time, monthday: Number(dom) }
+  const minuteStep = /^\*\/(\d+)$/.exec(minute)
+  if (minuteStep && hour === '*' && dom === '*' && month === '*' && dow === '*') return { ...result, scheduleType: 'interval', intervalValue: Number(minuteStep[1]), intervalUnit: 'minute' }
+  const hourStep = /^\*\/(\d+)$/.exec(hour)
+  if (minute === '0' && hourStep && dom === '*' && month === '*' && dow === '*') return { ...result, scheduleType: 'interval', intervalValue: Number(hourStep[1]), intervalUnit: 'hour' }
+  if (minute === '0' && hour === '*' && dom === '*' && month === '*' && dow === '*') return { ...result, scheduleType: 'interval', intervalValue: 1, intervalUnit: 'hour' }
+  return result
+}
+
+function onScheduleTypeChange() {
+  if (form.value.scheduleType !== 'advanced') form.value.cron = cronFromSchedule()
+}
+
+const scheduleSummary = computed(() => form.value.scheduleType === 'advanced' ? '执行计划：保留原有设置' : `执行计划：${describeCron(cronFromSchedule())}`)
+
+function describeCron(expr: string): string {
+  const parsed = scheduleFromCron(expr)
+  if (parsed.scheduleType === 'interval') return `每 ${parsed.intervalValue}${parsed.intervalUnit === 'minute' ? ' 分钟' : ' 小时'}`
+  if (parsed.scheduleType === 'daily') return `每天 ${parsed.time}`
+  if (parsed.scheduleType === 'weekly') return `每周${weekdays.find(d => d.value === parsed.weekday)?.label.replace('星期', '') || ''} ${parsed.time}`
+  if (parsed.scheduleType === 'monthly') return `每月 ${parsed.monthday} 日 ${parsed.time}`
+  return '自定义计划'
+}
 
 function fmt(t?: string | null) {
   if (!t) return '—'
@@ -384,7 +476,7 @@ function fmt(t?: string | null) {
 }
 
 const nextPreview = computed(() => {
-  const t = nextCron(form.value.cron, new Date())
+  const t = nextCron(cronFromSchedule(), new Date())
   return t ? t.toLocaleString('zh-CN', { hour12: false }) : '表达式无效'
 })
 
@@ -440,6 +532,7 @@ function openEdit(row: ScheduledJob) {
     template_id: row.template_id || '',
     // 编辑已有 job 时"关联任务"没有意义（关联关系不持久化），仅在 template/custom 之间切换
     configMode: row.template_id && !row.modules ? 'template' : 'custom',
+    ...scheduleFromCron(row.cron),
   }
   targetsText.value = (row.targets ?? []).join('\n')
   linkedTaskId.value = null
@@ -494,7 +587,8 @@ function openEdit(row: ScheduledJob) {
 
 async function submit() {
   if (!form.value.name.trim()) { ElMessage.warning('请填写任务名称'); return }
-  if (!form.value.cron.trim()) { ElMessage.warning('请填写 Cron 表达式'); return }
+  const scheduleCron = cronFromSchedule()
+  if (!scheduleCron.trim()) { ElMessage.warning('请设置执行计划'); return }
 
   let projectId = ''
   let targets: string[] = []
@@ -561,7 +655,7 @@ async function submit() {
     const body: any = {
       name: form.value.name,
       project_id: projectId,
-      cron: form.value.cron,
+      cron: scheduleCron,
       enabled: form.value.enabled,
       targets,
       stages,
@@ -685,4 +779,16 @@ function parseField(field: string, lo: number, hi: number): Set<number> | null {
   border-radius: 6px;
   border: 1px solid var(--el-border-color-lighter);
 }
+.schedule-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--el-text-color-secondary);
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.schedule-warning { color: var(--el-color-warning); }
 </style>

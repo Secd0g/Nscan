@@ -68,6 +68,15 @@ func (h *Handler) UpdateDict(c *gin.Context) {
 	}
 	delete(body, "id")
 	delete(body, "_id")
+	dict, err := h.dict.Get(c.Request.Context(), id)
+	if err != nil {
+		errResp(c, http.StatusNotFound, "字典不存在")
+		return
+	}
+	if dict.Builtin && dict.Category != "password" {
+		errResp(c, http.StatusForbidden, "内置字典不可修改")
+		return
+	}
 	if err := h.dict.Update(c.Request.Context(), id, body); err != nil {
 		errResp(c, http.StatusInternalServerError, err.Error())
 		return
@@ -79,6 +88,15 @@ func (h *Handler) DeleteDict(c *gin.Context) {
 	id, err := primitive.ObjectIDFromHex(c.Param("id"))
 	if err != nil {
 		errResp(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	dict, err := h.dict.Get(c.Request.Context(), id)
+	if err != nil {
+		errResp(c, http.StatusNotFound, "字典不存在")
+		return
+	}
+	if dict.Builtin && dict.Category != "password" {
+		errResp(c, http.StatusForbidden, "内置字典不可修改")
 		return
 	}
 	if err := h.dict.Delete(c.Request.Context(), id); err != nil {
@@ -135,6 +153,15 @@ func (h *Handler) UpdateDictContent(c *gin.Context) {
 		errResp(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	dict, err := h.dict.Get(c.Request.Context(), id)
+	if err != nil {
+		errResp(c, http.StatusNotFound, "字典不存在")
+		return
+	}
+	if dict.Builtin && dict.Category != "password" {
+		errResp(c, http.StatusForbidden, "内置字典不可修改")
+		return
+	}
 	lines := splitLines(body.Content)
 	if err := h.dict.SetContent(c.Request.Context(), id, lines); err != nil {
 		errResp(c, http.StatusInternalServerError, err.Error())
@@ -159,8 +186,8 @@ func (h *Handler) SyncDictsOnline(c *gin.Context) {
 		Description string
 	}
 	defs := []dictDef{
-		{"subdomain", "子域名爆破字典", "来自 ScopeSentry 的子域名爆破字典（约 20k）"},
-		{"directory", "目录扫描字典", "来自 ScopeSentry 的 Web 目录扫描字典（约 10k）"},
+		{"subdomain", "子域名爆破字典", ""},
+		{"directory", "目录扫描字典", ""},
 	}
 	totalCount := 0
 	for _, def := range defs {

@@ -109,13 +109,13 @@
                   </template>
                 </el-popconfirm>
               </div>
-              <el-table ref="assetTableRef" :data="asset.list" v-loading="asset.loading" style="width:100%" size="small" stripe border
+              <el-table ref="assetTableRef" class="asset-table" :data="asset.list" v-loading="asset.loading" style="width:100%" size="small" stripe border
                 :header-cell-style="{ background: 'var(--el-fill-color-light)', color: 'var(--el-text-color-primary)', fontWeight: 600, fontSize: '13px' }"
                 @scroll="syncAssetTableHeader"
                 @selection-change="(rows: any[]) => assetSelected = rows">
                 <el-table-column type="selection" width="42" />
                 <el-table-column type="index" label="序号" width="55" />
-                <el-table-column label="域名" min-width="220"><template #default="{ row }"><a class="asset-link full-domain" :href="assetURL(row.url)" target="_blank" rel="noopener noreferrer">{{ row.domain || row.url }}</a></template></el-table-column>
+                <el-table-column label="域名" min-width="220"><template #default="{ row }"><a class="asset-link full-domain" :href="assetURL(row.url)" target="_blank" rel="noopener noreferrer">{{ normalizeAssetURL(row.domain || row.url) }}</a></template></el-table-column>
                 <el-table-column label="IP" width="140"><template #default="{ row }">{{ row.ip || '-' }}</template></el-table-column>
                 <el-table-column label="端口/服务" width="100"><template #default="{ row }"><el-tag v-if="row.port" type="info" size="small" @click="addTag('port', row.port)">{{ row.port }}</el-tag><span v-else>-</span></template></el-table-column>
                 <el-table-column label="状态码" width="80"><template #default="{ row }"><span v-if="row.status_code" class="status-code" :style="{ color: statusColor(row.status_code) }">{{ row.status_code }}</span><span v-else>-</span></template></el-table-column>
@@ -157,7 +157,7 @@
                       <span class="card-title">{{ item.title || '无标题' }}</span>
                       <span v-if="item.status_code" :style="{ color: statusColor(item.status_code), fontWeight: 600, fontSize: '12px' }">{{ item.status_code }}</span>
                     </div>
-                    <a class="card-url" :href="assetURL(item.url)" target="_blank" @click.stop>{{ item.url }}</a>
+                    <a class="card-url" :href="assetURL(item.url)" target="_blank" @click.stop>{{ normalizeAssetURL(item.url) }}</a>
                     <div class="card-tags">
                       <el-tag v-if="item.port" size="small" type="info" style="font-family:monospace">{{ item.port }}</el-tag>
                       <el-tag v-for="t in (item.tech||[]).slice(0,2)" :key="t" size="small" type="success">{{ t }}</el-tag>
@@ -343,7 +343,7 @@
           <el-table-column type="selection" width="42" />
           <el-table-column label="域名" min-width="300">
             <template #default="{ row }">
-              <a class="asset-link" :href="assetURL(row.domain)" target="_blank">{{ row.domain }}</a>
+              <a class="asset-link" :href="assetURL(row.domain)" target="_blank">{{ normalizeAssetURL(row.domain) }}</a>
             </template>
           </el-table-column>
           <el-table-column label="类型" width="80" align="center">
@@ -483,7 +483,7 @@
             </template>
           </el-popconfirm>
         </div>
-        <el-table :data="dir.list" v-loading="dir.loading" style="width:100%" stripe
+        <el-table class="dir-table" :data="dir.list" v-loading="dir.loading" style="width:100%" stripe
           :header-cell-style="{ background: 'var(--el-fill-color-light)', color: 'var(--el-text-color-primary)', fontWeight: 600, fontSize: '13px' }"
           :cell-style="{ fontSize: '13px' }"
           @selection-change="(rows: any[]) => dirSelected = rows"
@@ -491,15 +491,15 @@
           <el-table-column type="selection" width="42" />
           <el-table-column label="URL" min-width="280" show-overflow-tooltip>
             <template #default="{ row }">
-              <a class="asset-link" :href="assetURL(row.url)" target="_blank">{{ row.url }}</a>
+              <a class="asset-link" :href="assetURL(row.url)" target="_blank">{{ normalizeAssetURL(row.url) }}</a>
             </template>
           </el-table-column>
-          <el-table-column prop="path" label="路径" min-width="160" show-overflow-tooltip>
+          <el-table-column prop="path" label="路径" min-width="220" show-overflow-tooltip>
             <template #default="{ row }">
               <code style="font-family:monospace;font-size:12px;color:var(--el-text-color-regular)">{{ row.path }}</code>
             </template>
           </el-table-column>
-          <el-table-column prop="status_code" label="状态码" width="80" align="center" sortable="custom">
+          <el-table-column prop="status_code" label="状态码" width="110" min-width="110" align="center" sortable="custom">
             <template #default="{ row }">
               <span class="status-code" :style="{ color: statusColor(row.status_code), fontWeight: 600 }">{{ row.status_code }}</span>
             </template>
@@ -507,8 +507,8 @@
           <el-table-column prop="content_len" label="大小" width="90" align="right" sortable="custom">
             <template #default="{ row }">{{ fmtBytes(row.content_len) }}</template>
           </el-table-column>
-          <el-table-column prop="content_type" label="Content-Type" min-width="140" show-overflow-tooltip />
-          <el-table-column label="跳转" min-width="180" show-overflow-tooltip>
+          <el-table-column prop="content_type" label="Content-Type" min-width="180" show-overflow-tooltip />
+          <el-table-column label="跳转" min-width="220" show-overflow-tooltip>
             <template #default="{ row }">
               <span v-if="row.redirect_url" style="color:var(--el-text-color-secondary);font-size:12px">{{ row.redirect_url }}</span>
               <span v-else style="color:var(--el-text-color-disabled)">—</span>
@@ -542,7 +542,7 @@
           <el-table-column type="selection" width="42" />
           <el-table-column label="URL" min-width="300" show-overflow-tooltip>
             <template #default="{ row }">
-              <a class="asset-link" :href="assetURL(row.url)" target="_blank" @click.stop>{{ row.url }}</a>
+              <a class="asset-link" :href="assetURL(row.url)" target="_blank" @click.stop>{{ normalizeAssetURL(row.url) }}</a>
             </template>
           </el-table-column>
           <el-table-column label="标题" min-width="180" show-overflow-tooltip>
@@ -635,7 +635,7 @@
               </el-table-column>
               <el-table-column label="URL" min-width="240" show-overflow-tooltip>
                 <template #default="{ row }">
-                  <a class="asset-link" :href="assetURL(row.url)" target="_blank" @click.stop>{{ row.url }}</a>
+                  <a class="asset-link" :href="assetURL(row.url)" target="_blank" @click.stop>{{ normalizeAssetURL(row.url) }}</a>
                 </template>
               </el-table-column>
               <el-table-column label="命中内容" min-width="240" show-overflow-tooltip>
@@ -682,7 +682,7 @@
     </Teleport>
 
     <!-- 资产详情抽屉 -->
-    <el-drawer v-model="assetDrawer" :title="assetDetail?.url" size="720px">
+    <el-drawer v-model="assetDrawer" :title="normalizeAssetURL(assetDetail?.url)" size="720px">
       <div v-if="assetDetail">
         <div v-if="assetDetail.screenshot" class="detail-screenshot">
           <img :src="`/images/screenshots/${assetDetail.screenshot}.png`" class="detail-img"
@@ -692,7 +692,7 @@
           <div class="detail-label">基础信息</div>
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="URL" :span="2">
-              <a class="asset-link" :href="assetURL(assetDetail.url)" target="_blank">{{ assetDetail.url }}</a>
+              <a class="asset-link" :href="assetURL(assetDetail.url)" target="_blank">{{ normalizeAssetURL(assetDetail.url) }}</a>
             </el-descriptions-item>
             <el-descriptions-item label="状态码">
               <span :style="{ color: statusColor(assetDetail.status_code), fontWeight: 600 }">{{ assetDetail.status_code }}</span>
@@ -837,18 +837,26 @@ function layoutAssetTable() {
   })
 }
 
-function assetURL(value: string): string {
+function normalizeAssetURL(value: string | null | undefined): string {
   const raw = String(value || '').trim()
-  if (!raw) return '#'
-  const repaired = raw
-    .replace(/^(https?:\/\/[^/:]+):(\d+):\2(?:$|\/)/, '$1:$2')
-    .replace(/^([^/:]+):(\d+):\2$/, '$1:$2')
+  if (!raw) return ''
+  return raw
+    // 扫描结果偶尔会把协议重复写入，例如 https://https://host。
+    .replace(/^(https?):\/\/(?:https?:\/\/)+/i, '$1://')
+    // 同一个端口被拼接两次，例如 host:7443:7443。
+    .replace(/:(\d+):\1(?=$|\/)/, ':$1')
+}
+
+function assetURL(value: string): string {
+  const repaired = normalizeAssetURL(value)
+  if (!repaired) return '#'
   if (/^https?:\/\//i.test(repaired)) return repaired
   const port = repaired.match(/:(\d+)$/)?.[1]
   return `${port === '443' ? 'https' : 'http'}://${repaired}`
 }
 
-function uniqueTech(values: string[] = []): string[] {
+function uniqueTech(values: string[] | null | undefined): string[] {
+  if (!Array.isArray(values)) return []
   const seen = new Set<string>()
   return values.filter(value => {
     const key = String(value || '').trim().toLowerCase()
@@ -1419,7 +1427,7 @@ onBeforeUnmount(() => {
 .view-btn:hover { color: var(--el-color-primary); }
 .view-btn.active { background: var(--el-color-primary); color: #fff; }
 
-.asset-body { display: flex; gap: 0; align-items: flex-start; }
+.asset-body { display: flex; gap: 0; align-items: flex-start; width: 100%; min-width: 0; }
 
 .stat-panel { width: 180px; flex-shrink: 0; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-bg-color-overlay); margin-right: 14px; overflow: hidden; }
 .stat-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; font-size: 12.5px; border-bottom: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); }
@@ -1435,7 +1443,10 @@ onBeforeUnmount(() => {
 .stat-collapsed { width: 28px; flex-shrink: 0; margin-right: 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-light); display: flex; flex-direction: column; align-items: center; padding: 12px 0; cursor: pointer; color: var(--el-text-color-secondary); font-size: 14px; }
 .stat-collapsed:hover { color: var(--el-color-primary); border-color: var(--el-color-primary-light-5); }
 
-.asset-right { flex: 1; min-width: 0; }
+.asset-right { flex: 1 1 0; width: 0; min-width: 0; overflow: hidden; }
+.asset-right :deep(.asset-table) { width: 100%; max-width: 100%; }
+.asset-right :deep(.el-table__header-wrapper),
+.asset-right :deep(.el-table__body-wrapper) { max-width: 100%; }
 
 /* 卡片网格 */
 .card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }

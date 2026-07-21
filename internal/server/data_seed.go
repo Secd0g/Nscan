@@ -56,8 +56,8 @@ type dictSeedEntry struct {
 
 func SeedDicts(ctx context.Context, repo *repositories.DictRepo, log *zap.Logger) {
 	entries := []dictSeedEntry{
-		{"subdomain", "子域名爆破字典", "来自 ScopeSentry 的子域名爆破字典（约 20k）", "data/subdomain.txt"},
-		{"directory", "目录扫描字典", "来自 ScopeSentry 的 Web 目录扫描字典（约 10k）", "data/dir.txt"},
+		{"subdomain", "子域名爆破字典", "", "data/subdomain.txt"},
+		{"directory", "目录扫描字典", "", "data/dir.txt"},
 	}
 
 	for _, e := range entries {

@@ -15,12 +15,13 @@ type FieldChange struct {
 
 // AssetChangeLog 资产字段变更记录（跨扫描任务对比）
 type AssetChangeLog struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty"  json:"id"`
-	UserID    primitive.ObjectID `bson:"user_id"       json:"user_id"`
-	AssetID   primitive.ObjectID `bson:"asset_id"       json:"asset_id"`
-	AssetType string             `bson:"asset_type"     json:"asset_type"` // subdomain | port | http
-	ProjectID string             `bson:"project_id"     json:"project_id"`
-	TaskID    string             `bson:"task_id"        json:"task_id"`
-	Changes   []FieldChange      `bson:"changes"        json:"changes"`
-	CreatedAt time.Time          `bson:"created_at"     json:"created_at"`
+	ID         primitive.ObjectID `bson:"_id,omitempty"  json:"id"`
+	UserID     primitive.ObjectID `bson:"user_id"       json:"user_id"`
+	AssetID    primitive.ObjectID `bson:"asset_id"       json:"asset_id"`
+	AssetType  string             `bson:"asset_type"     json:"asset_type"` // subdomain | port | http
+	AssetLabel string             `bson:"asset_label,omitempty" json:"asset_label,omitempty"`
+	ProjectID  string             `bson:"project_id"     json:"project_id"`
+	TaskID     string             `bson:"task_id"        json:"task_id"`
+	Changes    []FieldChange      `bson:"changes"        json:"changes"`
+	CreatedAt  time.Time          `bson:"created_at"     json:"created_at"`
 }

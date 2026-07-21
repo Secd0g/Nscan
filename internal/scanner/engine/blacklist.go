@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"net"
 	"path"
 	"strings"
@@ -21,7 +22,7 @@ func NewBlacklistChecker(rules []*scanv1.BlacklistRule) *BlacklistChecker {
 		domains: make(map[string]bool),
 	}
 	for _, r := range rules {
-		val := strings.TrimSpace(r.Value)
+		val := strings.ToLower(strings.TrimSpace(r.Value))
 		switch r.Type {
 		case "ip":
 			c.ips[val] = true
@@ -40,7 +41,7 @@ func NewBlacklistChecker(rules []*scanv1.BlacklistRule) *BlacklistChecker {
 }
 
 func (c *BlacklistChecker) IsBlocked(target string) bool {
-	host := target
+	host := strings.ToLower(strings.TrimSpace(target))
 	// Remove scheme if present (e.g., http://)
 	if idx := strings.Index(host, "://"); idx != -1 {
 		host = host[idx+3:]
@@ -84,12 +85,32 @@ func (c *BlacklistChecker) IsBlocked(target string) bool {
 	return false
 }
 
+// IsResultBlocked applies the same blacklist rules to the asset payloads
+// emitted by every scanner. Scanner implementations do not all return the
+// same asset shape, so inspect the common target-bearing fields here rather
+// than requiring every tool to duplicate this policy.
+func (c *BlacklistChecker) IsResultBlocked(result *ScanResult) bool {
+	if result == nil || len(result.Data) == 0 {
+		return false
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(result.Data, &fields); err != nil {
+		return false
+	}
+	for _, key := range []string{"url", "domain", "ip", "host", "target", "matched_at"} {
+		if value, ok := fields[key].(string); ok && value != "" && c.IsBlocked(value) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *BlacklistChecker) FilterInput(input *StageInput, skippedCallback func(string)) *StageInput {
 	if input == nil {
 		return nil
 	}
 	out := &StageInput{}
-	
+
 	filterList := func(list []string, outList *[]string) {
 		for _, item := range list {
 			if !c.IsBlocked(item) {
@@ -104,6 +125,13 @@ func (c *BlacklistChecker) FilterInput(input *StageInput, skippedCallback func(s
 	filterList(input.Subdomains, &out.Subdomains)
 	filterList(input.Hosts, &out.Hosts)
 	filterList(input.HTTPURLs, &out.HTTPURLs)
+	for _, page := range input.CrawledPages {
+		if !c.IsBlocked(page.URL) {
+			out.CrawledPages = append(out.CrawledPages, page)
+		} else if skippedCallback != nil {
+			skippedCallback(page.URL)
+		}
+	}
 
 	if input.HTTPTechMap != nil {
 		out.HTTPTechMap = make(map[string][]string, len(input.HTTPTechMap))

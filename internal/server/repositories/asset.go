@@ -1548,5 +1548,46 @@ func (r *AssetRepo) RecentChanges(ctx context.Context, limit int64) ([]models.As
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err
 	}
+	for i := range out {
+		out[i].AssetLabel = r.assetChangeLabel(ctx, out[i].AssetType, out[i].AssetID)
+	}
 	return out, nil
+}
+
+func (r *AssetRepo) assetChangeLabel(ctx context.Context, assetType string, id primitive.ObjectID) string {
+	var label struct {
+		Domain string `bson:"domain"`
+		URL    string `bson:"url"`
+		IP     string `bson:"ip"`
+		Port   int    `bson:"port"`
+	}
+	var collection string
+	switch assetType {
+	case "subdomain":
+		collection = collSubdomain
+	case "port":
+		collection = collPort
+	case "http":
+		collection = collHTTP
+	default:
+		return ""
+	}
+	if err := r.db.Collection(collection).FindOne(ctx, bson.M{"_id": id}, options.FindOne().SetProjection(bson.M{"domain": 1, "url": 1, "ip": 1, "port": 1})).Decode(&label); err != nil {
+		return ""
+	}
+	switch assetType {
+	case "subdomain":
+		return label.Domain
+	case "http":
+		if label.Domain != "" {
+			return label.Domain
+		}
+		return label.URL
+	case "port":
+		if label.Port > 0 {
+			return fmt.Sprintf("%s:%d", label.IP, label.Port)
+		}
+		return label.IP
+	}
+	return ""
 }

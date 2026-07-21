@@ -171,6 +171,7 @@ func (e *PipelineEngine) Run(
 
 	params := task.Config.GetParams()
 	targets := task.Targets
+	blacklistChecker := NewBlacklistChecker(task.Blacklist)
 	if runtime.GOOS == "linux" && isRunningInDocker() {
 		for i, t := range targets {
 			t = strings.ReplaceAll(t, "://127.0.0.1", "://host.docker.internal")
@@ -179,7 +180,6 @@ func (e *PipelineEngine) Run(
 		}
 	}
 	input := &StageInput{Targets: targets}
-	blacklistChecker := NewBlacklistChecker(task.Blacklist)
 
 	// Filter initial targets
 	var skippedCount int
@@ -214,6 +214,10 @@ func (e *PipelineEngine) Run(
 	go func() {
 		defer close(stageFanoutDone)
 		for r := range stageCh {
+			if blacklistChecker.IsResultBlocked(r) {
+				SendLog(progress, "_pipeline", "info", fmt.Sprintf("跳过黑名单结果: %s", r.Type))
+				continue
+			}
 			resultFanout(r)
 		}
 	}()
@@ -343,7 +347,29 @@ func (e *PipelineEngine) RunSingleStage(
 
 	stageParams := filterParams(params, stageName+".")
 
-	_, err := stage.Run(taskCtx, input, stageParams, results, progress)
+	// Scanner stages emit results directly while they run. Put a shared
+	// filtering boundary in front of the caller-owned channel so every tool is
+	// subject to the blacklist, including results returned by external tools.
+	filteredResults := make(chan *ScanResult, 128)
+	var filterDone = make(chan struct{})
+	go func() {
+		defer close(filterDone)
+		for result := range filteredResults {
+			if checker.IsResultBlocked(result) {
+				SendLog(progress, stageName, "info", fmt.Sprintf("跳过黑名单结果: %s", result.Type))
+				continue
+			}
+			select {
+			case results <- result:
+			case <-taskCtx.Done():
+				return
+			}
+		}
+	}()
+
+	_, err := stage.Run(taskCtx, input, stageParams, filteredResults, progress)
+	close(filteredResults)
+	<-filterDone
 	return err
 }
 

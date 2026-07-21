@@ -35,12 +35,12 @@
           </el-table-column>
           <el-table-column label="启用状态" width="90" align="center">
             <template #default="{ row }">
-              <el-switch v-model="row.active" size="small" @change="toggleDict(row)" />
+              <el-switch v-model="row.active" size="small" :disabled="row.builtin && row.category !== 'password'" @change="toggleDict(row)" />
             </template>
           </el-table-column>
           <el-table-column label="操作" width="180" align="center">
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="editDict(row)">编辑</el-button>
+              <el-button v-if="!row.builtin || row.category === 'password'" type="primary" link size="small" @click="editDict(row)">编辑</el-button>
               <el-button type="primary" link size="small" @click="previewDict(row)">预览</el-button>
               <el-popconfirm v-if="!row.builtin" title="确认删除？" @confirm="deleteDict(row)">
                 <template #reference>

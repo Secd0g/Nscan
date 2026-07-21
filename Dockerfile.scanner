@@ -41,23 +41,23 @@ FROM ${DEBIAN_IMAGE}
 
 ARG TARGETARCH
 ARG INSTALL_AI_TOOLS=false
-ARG INSTALL_OPTIONAL_TOOLS=false
+ARG INSTALL_OPTIONAL_TOOLS=true
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl wget unzip python3 \
+        python3-pip python3-venv pipx python-is-python3 \
         libpcap-dev \
     && if [ "${INSTALL_AI_TOOLS}" = "true" ]; then \
         apt-get install -y --no-install-recommends nodejs npm git; \
-    fi \
-    && if [ "${INSTALL_OPTIONAL_TOOLS}" = "true" ]; then \
-        apt-get install -y --no-install-recommends python3-pip pipx; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Go toolchain for runtime plugin compilation / go install
 COPY --from=builder /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:/root/go/bin:/root/.local/bin:${PATH}"
+ENV PIPX_HOME=/root/.local/pipx
+ENV PIPX_BIN_DIR=/root/.local/bin
 ENV GOPROXY=https://goproxy.cn,direct
 ENV GOPATH=/root/go
 
@@ -82,8 +82,9 @@ COPY --from=tools /root/go/bin/ /root/go/bin/
 # Nuclei templates
 COPY --from=tools /root/nuclei-templates /root/nuclei-templates
 
-# Findomain and bbot are optional because their upstream downloads may be
-# unavailable in restricted build networks.
+# Install the Python runtime and optional security tools into the image so a
+# fresh deployment does not require manual package installation in the
+# minimal runtime container.
 RUN if [ "${INSTALL_OPTIONAL_TOOLS}" = "true" ]; then \
         case "${TARGETARCH}" in \
             amd64) archive="findomain-linux.zip" ;; \
@@ -96,7 +97,10 @@ RUN if [ "${INSTALL_OPTIONAL_TOOLS}" = "true" ]; then \
         && chmod +x /usr/local/bin/findomain \
         && rm /tmp/findomain.zip \
         && pipx install bbot --force \
-        && pipx ensurepath; \
+        && pipx ensurepath \
+        && python --version \
+        && pipx --version \
+        && bbot --version; \
     else \
         echo "optional Findomain/BBOT tooling disabled; build with INSTALL_OPTIONAL_TOOLS=true to enable it"; \
     fi

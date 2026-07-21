@@ -31,14 +31,22 @@ func NewDictRepo(db *mongo.Database) *DictRepo {
 
 // ListFilter dict 查询过滤条件
 type ListFilter struct {
-	Category    string // 精确匹配
-	Service     string // 精确匹配 service；"*" 表示无过滤（含通用）
-	Kind        string // password 类下 users|passwords
-	ActiveOnly  bool
+	Category   string // 精确匹配
+	Service    string // 精确匹配 service；"*" 表示无过滤（含通用）
+	Kind       string // password 类下 users|passwords
+	ActiveOnly bool
 }
 
 func (r *DictRepo) List(ctx context.Context, category string) ([]models.Dict, error) {
 	return r.Query(ctx, ListFilter{Category: category})
+}
+
+func (r *DictRepo) Get(ctx context.Context, id primitive.ObjectID) (*models.Dict, error) {
+	var d models.Dict
+	if err := r.meta.FindOne(ctx, bson.M{"_id": id}).Decode(&d); err != nil { // @check-ignore: dict is global admin config, no user scope
+		return nil, err
+	}
+	return &d, nil
 }
 
 func (r *DictRepo) Query(ctx context.Context, f ListFilter) ([]models.Dict, error) {
@@ -87,13 +95,19 @@ func (r *DictRepo) Create(ctx context.Context, d *models.Dict, lines []string) e
 }
 
 func (r *DictRepo) Delete(ctx context.Context, id primitive.ObjectID) error {
-	r.lines.DeleteMany(ctx, bson.M{"dict_id": id}) // @check-ignore: dict is global admin config, no user scope
+	r.lines.DeleteMany(ctx, bson.M{"dict_id": id})     // @check-ignore: dict is global admin config, no user scope
 	_, err := r.meta.DeleteOne(ctx, bson.M{"_id": id}) // @check-ignore: dict is global admin config, no user scope
 	return err
 }
 
 func (r *DictRepo) Update(ctx context.Context, id primitive.ObjectID, fields bson.M) error {
-	_, err := r.meta.UpdateByID(ctx, id, bson.M{"$set": fields}) // @check-ignore: dict is global admin config, no user scope
+	result, err := r.meta.UpdateOne(ctx, bson.M{
+		"_id": id,
+		"$or": bson.A{bson.M{"builtin": false}, bson.M{"category": "password"}},
+	}, bson.M{"$set": fields}) // @check-ignore: dict is global admin config, no user scope
+	if err == nil && result.MatchedCount == 0 {
+		return mongo.ErrNoDocuments
+	}
 	return err
 }
 
@@ -103,7 +117,7 @@ func (r *DictRepo) GetLines(ctx context.Context, dictID primitive.ObjectID, limi
 		return nil, 0, err
 	}
 	opts := options.Find().SetLimit(limit).SetSkip(skip).SetProjection(bson.M{"line": 1}) // @check-ignore: dict is global admin config, no user scope
-	cursor, err := r.lines.Find(ctx, bson.M{"dict_id": dictID}, opts) // @check-ignore: dict is global admin config, no user scope
+	cursor, err := r.lines.Find(ctx, bson.M{"dict_id": dictID}, opts)                     // @check-ignore: dict is global admin config, no user scope
 	if err != nil {
 		return nil, 0, err
 	}
@@ -139,6 +153,13 @@ func (r *DictRepo) GetContent(ctx context.Context, dictID primitive.ObjectID) (s
 
 // SetContent 替换字典的行内容（原子替换）
 func (r *DictRepo) SetContent(ctx context.Context, dictID primitive.ObjectID, lines []string) error {
+	var meta models.Dict
+	if err := r.meta.FindOne(ctx, bson.M{"_id": dictID}).Decode(&meta); err != nil { // @check-ignore: dict is global admin config, no user scope
+		return err
+	}
+	if meta.Builtin && meta.Category != "password" {
+		return mongo.ErrNoDocuments
+	}
 	if _, err := r.lines.DeleteMany(ctx, bson.M{"dict_id": dictID}); err != nil { // @check-ignore: dict is global admin config, no user scope
 		return err
 	}

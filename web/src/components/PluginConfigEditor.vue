@@ -19,24 +19,39 @@
 -->
 <template>
   <div class="plugin-config-editor">
-    <div v-for="mod in moduleOrder" :key="mod" class="module-section">
-      <div class="module-header">
-        <span class="module-icon">{{ moduleIcon(mod) }}</span>
-        <span class="module-name">{{ moduleLabel(mod) }}</span>
-        <el-tag size="small" type="info">{{ pluginsOf(mod).length }} 个插件</el-tag>
-      </div>
-      <div v-for="plugin in pluginsOf(mod)" :key="plugin.id" class="plugin-card">
-        <div class="plugin-row">
-          <el-switch v-model="entryOf(mod, plugin.id).enabled" size="small" :disabled="props.disabledPlugins?.[plugin.id]?.disabled" />
+    <div v-if="availableModules.length" class="module-layout">
+      <nav class="module-nav" aria-label="扫描模块">
+        <button v-for="mod in availableModules" :key="mod" type="button"
+          :class="['module-nav-item', { active: activeModule === mod }]"
+          @click="activeModule = mod">
+          <span class="module-icon">{{ moduleIcon(mod) }}</span>
+          <span class="module-nav-name">{{ moduleLabel(mod) }}</span>
+          <el-tag size="small" type="info">{{ pluginsOf(mod).length }}</el-tag>
+        </button>
+      </nav>
+      <main class="module-content">
+        <template v-for="mod in availableModules" :key="mod">
+          <div v-if="activeModule === mod" class="module-section">
+          <div class="module-header">
+            <span class="module-icon">{{ moduleIcon(mod) }}</span>
+            <span class="module-name">{{ moduleLabel(mod) }}</span>
+            <el-tag size="small" type="info">{{ pluginsOf(mod).length }} 个插件</el-tag>
+          </div>
+          <div v-for="plugin in pluginsOf(mod)" :key="plugin.id" class="plugin-card">
+        <div class="plugin-row" :class="{ expanded: expandedPluginByModule[mod] === plugin.id }" @click="togglePlugin(mod, plugin.id)">
+          <el-switch v-model="entryOf(mod, plugin.id).enabled" size="small" :disabled="props.disabledPlugins?.[plugin.id]?.disabled" @click.stop @change="togglePlugin(mod, plugin.id)" />
           <span class="plugin-name-label">{{ plugin.name }}</span>
-          <span class="plugin-ver">{{ plugin.version }}</span>
-          <span class="plugin-desc-text">{{ plugin.description }}</span>
+          <template v-if="props.showPluginMeta">
+            <span class="plugin-ver">{{ plugin.version }}</span>
+            <span class="plugin-desc-text">{{ plugin.description }}</span>
+          </template>
           <div v-if="props.disabledPlugins?.[plugin.id]?.disabled" style="margin-left:auto; display:flex; align-items:center; gap:8px">
             <el-tag size="small" type="danger" effect="plain">{{ props.disabledPlugins[plugin.id].reason }}</el-tag>
-            <el-button v-if="props.disabledPlugins[plugin.id].route" size="small" type="primary" link @click="$router.push(props.disabledPlugins[plugin.id].route!)">去配置</el-button>
+            <el-button v-if="props.disabledPlugins[plugin.id].route" size="small" type="primary" link @click.stop="$router.push(props.disabledPlugins[plugin.id].route!)">去配置</el-button>
           </div>
+          <span class="plugin-expand-icon">{{ expandedPluginByModule[mod] === plugin.id ? '▴' : '▾' }}</span>
         </div>
-        <div v-if="entryOf(mod, plugin.id).enabled && plugin.params?.length && !props.disabledPlugins?.[plugin.id]?.disabled" class="plugin-params">
+        <div v-if="expandedPluginByModule[mod] === plugin.id && entryOf(mod, plugin.id).enabled && plugin.params?.length && !props.disabledPlugins?.[plugin.id]?.disabled" class="plugin-params">
           <el-row :gutter="12">
             <el-col v-for="param in plugin.params" :key="param.key" :span="param.span || 12">
               <el-form-item :label="param.label" style="margin-bottom:10px">
@@ -77,14 +92,17 @@
             </el-col>
           </el-row>
         </div>
-      </div>
-      <div v-if="pluginsOf(mod).length === 0" class="module-empty">暂无可用插件</div>
+          </div>
+          </div>
+        </template>
+      </main>
     </div>
+    <div v-else class="module-empty">暂无可用插件</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Plugin, PluginParam, DictEntry } from '@/api'
 import { MODULE_ORDER, moduleLabel, moduleIcon } from '@/constants/modules'
@@ -100,13 +118,26 @@ const props = defineProps<{
   plugins: Plugin[]
   dicts?: DictEntry[]
   disabledPlugins?: Record<string, { disabled: boolean, reason: string, route?: string }>
+  showPluginMeta?: boolean
 }>()
 
 const router = useRouter()
 const moduleOrder = [...MODULE_ORDER]
+const activeModule = ref<string>('')
+const expandedPluginByModule = ref<Record<string, string | null>>({})
 
 function pluginsOf(mod: string): Plugin[] {
   return props.plugins.filter(p => p.module === mod && p.enabled)
+}
+
+const availableModules = computed<string[]>(() => moduleOrder.filter(mod => pluginsOf(mod).length > 0))
+
+watch(availableModules, modules => {
+  if (!modules.includes(activeModule.value)) activeModule.value = modules[0] ?? ''
+}, { immediate: true })
+
+function togglePlugin(mod: string, pluginId: string) {
+  expandedPluginByModule.value[mod] = expandedPluginByModule.value[mod] === pluginId ? null : pluginId
 }
 
 // entryOf 保证父组件传入的 customConfig 里有对应槽位；没有则用插件 schema 的默认值填充。
@@ -167,6 +198,21 @@ function dictSelectPlaceholder(param: PluginParam): string {
 }
 .module-section { border-bottom: 1px solid var(--el-border-color-lighter); }
 .module-section:last-child { border-bottom: none; }
+.module-layout { display: flex; min-height: 360px; }
+.module-nav {
+  flex: 0 0 180px; padding: 8px; background: var(--el-fill-color-light);
+  border-right: 1px solid var(--el-border-color-lighter);
+}
+.module-nav-item {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 9px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--el-text-color-regular);
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.module-nav-item:hover { background: var(--el-fill-color); }
+.module-nav-item.active { background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-weight: 600; }
+.module-nav-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.module-nav-item :deep(.el-tag) { flex: 0 0 auto; transform: scale(.9); transform-origin: right center; }
+.module-content { flex: 1; min-width: 0; overflow-x: hidden; }
 .module-header {
   background: var(--el-fill-color-light); padding: 8px 14px;
   display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;
@@ -176,9 +222,11 @@ function dictSelectPlaceholder(param: PluginParam): string {
 .plugin-card { border-top: 1px solid var(--el-border-color-extra-light); }
 .plugin-row {
   padding: 8px 14px 8px 42px;
-  display: flex; align-items: center; gap: 10px; font-size: 13px;
+  display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer;
 }
+.plugin-row:hover, .plugin-row.expanded { background: var(--el-fill-color-light); }
 .plugin-name-label { font-weight: 500; min-width: 100px; }
+.plugin-expand-icon { margin-left: auto; color: var(--el-text-color-secondary); font-size: 14px; }
 .plugin-ver { color: var(--el-text-color-secondary); font-size: 11px; min-width: 40px; }
 .plugin-desc-text { color: var(--el-text-color-secondary); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plugin-params {
@@ -192,4 +240,9 @@ function dictSelectPlaceholder(param: PluginParam): string {
 .plugin-params :deep(.el-form-item__label) { font-size: 13px; color: var(--el-text-color-regular); padding-bottom: 4px; }
 .param-help { font-size: 11px; color: var(--el-text-color-placeholder); margin-top: 4px; line-height: 1.4; }
 .module-empty { padding: 12px 14px; color: var(--el-text-color-disabled); font-size: 12px; }
+@media (max-width: 600px) {
+  .module-layout { display: block; }
+  .module-nav { display: flex; flex-wrap: wrap; gap: 4px; border-right: 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+  .module-nav-item { width: auto; flex: 1 1 120px; }
+}
 </style>

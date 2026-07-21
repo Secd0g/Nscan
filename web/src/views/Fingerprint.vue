@@ -19,7 +19,7 @@
       <!-- ══ 被动指纹 ══ -->
       <el-tab-pane name="passive">
         <template #label>
-          <span>被动指纹 <el-badge v-if="passiveTotal" :value="passiveTotal" :max="99999" class="tab-badge" /></span>
+          <span>被动指纹</span>
         </template>
       </el-tab-pane>
 
@@ -238,7 +238,6 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(50)
 const total = ref(0)
-const passiveTotal = ref(0)
 const activeTotal = ref(0)
 const categories = ref<string[]>([])
 const filter = reactive({ keyword: '', parent_category: '', location: '', enabled: '' })
@@ -263,11 +262,7 @@ async function fetchList(reset = false) {
 }
 
 async function fetchCounts() {
-  const [p, a] = await Promise.all([
-    fingerprintApi.list({ fp_type: 'passive', limit: 1, skip: 0 }).catch(() => ({ total: 0 })),
-    fingerprintApi.list({ fp_type: 'active', limit: 1, skip: 0 }).catch(() => ({ total: 0 })),
-  ])
-  passiveTotal.value = p.total
+  const a = await fingerprintApi.list({ fp_type: 'active', limit: 1, skip: 0 }).catch(() => ({ total: 0 }))
   activeTotal.value = a.total
 }
 

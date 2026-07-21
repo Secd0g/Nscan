@@ -1,6 +1,6 @@
 <template>
   <div class="system-general">
-    <el-card shadow="never" style="max-width: 600px">
+    <el-card class="system-card" shadow="never">
       <template #header>
         <div style="font-weight: 600">全局代理配置</div>
       </template>
@@ -61,3 +61,7 @@ async function saveConfig() {
 
 onMounted(loadConfig)
 </script>
+
+<style scoped>
+.system-card { width: 100%; }
+</style>

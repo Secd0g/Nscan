@@ -28,7 +28,7 @@ docker build --pull=false \
   --build-arg "GO_IMAGE=$GO_IMAGE" \
   --build-arg "DEBIAN_IMAGE=$DEBIAN_IMAGE" \
   --build-arg "INSTALL_AI_TOOLS=${INSTALL_AI_TOOLS:-false}" \
-  --build-arg "INSTALL_OPTIONAL_TOOLS=${INSTALL_OPTIONAL_TOOLS:-false}" \
+  --build-arg "INSTALL_OPTIONAL_TOOLS=${INSTALL_OPTIONAL_TOOLS:-true}" \
   -f Dockerfile.scanner -t "$SCANNER_IMAGE" .
 
 if [ "${PUSH_IMAGES:-false}" = "true" ]; then

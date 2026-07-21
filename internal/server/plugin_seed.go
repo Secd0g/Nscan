@@ -21,7 +21,7 @@ func SeedBuiltinPlugins(ctx context.Context, repo *repositories.PluginRepo, log 
 		httpxPlugin(),
 		fingerprintPlugin(),
 		nucleiPlugin(),
-		dirsearchPlugin(),
+		ffufPlugin(),
 		brutescanPlugin(),
 		onlinesearchPlugin(),
 		crawlerPlugin(),
@@ -33,7 +33,8 @@ func SeedBuiltinPlugins(ctx context.Context, repo *repositories.PluginRepo, log 
 		"hydra",
 		"brute-ssh", "brute-ftp", "brute-mysql", "brute-redis",
 		"brute-mongodb", "brute-postgresql", "brute-mssql",
-		"dirsearch", // 改名为 dirscan（纯 Go 实现，无需装 python dirsearch）
+		"dirsearch",
+		"dirscan", // 改名为 ffuf
 	}
 	for _, name := range obsolete {
 		if err := repo.DeleteBuiltinByName(ctx, name); err != nil {
@@ -138,8 +139,6 @@ func ksubdomainPlugin() models.Plugin {
 		},
 	}
 }
-
-
 func shufflednsPlugin() models.Plugin {
 	return models.Plugin{
 		Name:        "shuffledns",
@@ -463,13 +462,13 @@ func brutescanPlugin() models.Plugin {
 	}
 }
 
-func dirsearchPlugin() models.Plugin {
+func ffufPlugin() models.Plugin {
 	return models.Plugin{
-		Name:        "dirscan",
+		Name:        "ffuf",
 		Module:      "dir",
-		Description: "Web 目录与文件扫描器，纯 Go 实现，基于字典的路径爆破，支持递归、状态码过滤",
-		Version:     "v1.0",
-		Author:      "maurosoria",
+		Description: "高速 Web 目录与文件扫描器，基于字典进行路径爆破",
+		Version:     "v2",
+		Author:      "ffuf",
 		Params: []models.PluginParam{
 			{
 				Key: "threads", Label: "并发线程", Type: "number",
@@ -517,9 +516,6 @@ func dirsearchPlugin() models.Plugin {
 	}
 }
 
-// onlinesearchPlugin 作为扫描 pipeline 里的一个 stage：
-// 参考 ScopeSentry 流程：用户只选数据源，查询语句由 scanner 端按扫描目标（域名/IP/CIDR）
-// 结合每个 provider 各自的语法自动生成。高级用户可在"自定义查询"里手写覆盖。
 func onlinesearchPlugin() models.Plugin {
 	return models.Plugin{
 		Name:        "onlinesearch",

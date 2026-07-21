@@ -350,6 +350,7 @@ export interface AssetChangeLog {
   id: string
   asset_id: string
   asset_type: string
+  asset_label?: string
   project_id: string
   task_id: string
   changes: FieldChange[]

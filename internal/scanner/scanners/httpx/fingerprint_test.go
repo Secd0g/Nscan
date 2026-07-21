@@ -1,9 +1,38 @@
 package httpx
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 )
+
+func TestLoadManagedFingerprints(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fingerprints.json")
+	data := `[
+  {"name":"CustomCMS","keyword":"custom-marker","location":"body","match_type":"contains","fp_type":"passive","enabled":true},
+  {"name":"Disabled","keyword":"custom-marker","location":"body","match_type":"contains","fp_type":"passive","enabled":false},
+  {"name":"CustomHeader","keyword":"X-Custom: enabled","location":"header","match_type":"contains","fp_type":"passive","enabled":true},
+  {"name":"CustomTitle","keyword":"Secret Portal","location":"title","match_type":"regex","fp_type":"passive","enabled":true}
+]`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManagedFingerprints(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Match("body", "custom-marker"); len(got) != 1 || got[0] != "CustomCMS" {
+		t.Fatalf("body match = %v", got)
+	}
+	if got := m.Match("header", "X-Custom: enabled"); len(got) != 1 || got[0] != "CustomHeader" {
+		t.Fatalf("header match = %v", got)
+	}
+	if got := m.Match("title", "Secret Portal"); len(got) != 1 || got[0] != "CustomTitle" {
+		t.Fatalf("title match = %v", got)
+	}
+}
 
 func TestFingerprintMatcher_WordPress(t *testing.T) {
 	m := NewFingerprintMatcher(DefaultFingerprints)

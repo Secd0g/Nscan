@@ -79,7 +79,8 @@ func (h *Handler) CreateTask(c *gin.Context) {
 			"httpx":        "http",
 			"fingerprint":  "http",
 			"nuclei":       "nuclei",
-			"dirscan":      "dir",
+			"ffuf":         "dir",
+			"dirscan":      "dir", // 兼容历史任务
 			"brutescan":    "brute",
 			"onlinesearch": "search",
 			"crawler":      "crawler",
@@ -353,7 +354,9 @@ func (h *Handler) BatchDeleteTasks(c *gin.Context) {
 			continue
 		}
 		task, _ := h.tasks.GetByIDForUser(ctx, id, uid)
-		if task == nil { continue }
+		if task == nil {
+			continue
+		}
 		_ = h.tasks.DeleteForUser(ctx, id, uid)
 		h.sched.CancelCleanup(ctx, idStr)
 		if task != nil && (task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusDispatched || task.Status == models.TaskStatusPending || task.Status == models.TaskStatusQueued) {

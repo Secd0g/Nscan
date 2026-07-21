@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,15 +32,45 @@ var titleRe = regexp.MustCompile(`(?i)<title[^>]*>([^<]+)</title>`)
 
 // Stage HTTP 服务探测阶段
 type Stage struct {
-	log     *zap.Logger
-	client  *http.Client
-	matcher *FingerprintMatcher
+	log                *zap.Logger
+	client             *http.Client
+	matcher            *FingerprintMatcher
+	managed            *ManagedMatcher
+	managedMu          sync.RWMutex
+	managedActive      bool
+	fingerprintPath    string
+	fingerprintModTime time.Time
 }
 
 func New(log *zap.Logger) *Stage {
+	return NewWithFingerprints(log, "")
+}
+
+// NewWithFingerprints creates the HTTP stage and loads the rules synced from
+// the server. An absent or invalid file falls back to the built-in matcher.
+func NewWithFingerprints(log *zap.Logger, fingerprintsPath string) *Stage {
+	var managed *ManagedMatcher
+	var modTime time.Time
+	managedActive := false
+	if fingerprintsPath != "" {
+		if loaded, err := LoadManagedFingerprints(filepath.Clean(fingerprintsPath)); err == nil {
+			managed = loaded
+			managedActive = true
+			if stat, statErr := os.Stat(fingerprintsPath); statErr == nil {
+				modTime = stat.ModTime()
+			}
+			log.Info("http fingerprint rules loaded", zap.String("path", fingerprintsPath))
+		} else if !os.IsNotExist(err) {
+			log.Warn("http fingerprint rules unavailable, using built-in rules", zap.Error(err))
+		}
+	}
 	return &Stage{
-		log:     log,
-		matcher: NewFingerprintMatcher(DefaultFingerprints),
+		log:                log,
+		matcher:            NewFingerprintMatcher(DefaultFingerprints),
+		managed:            managed,
+		managedActive:      managedActive,
+		fingerprintPath:    fingerprintsPath,
+		fingerprintModTime: modTime,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -61,6 +93,7 @@ func (s *Stage) Run(
 	results chan<- *engine.ScanResult,
 	progress chan<- *engine.Progress,
 ) (*engine.StageInput, error) {
+	s.reloadManagedFingerprints()
 
 	urls := buildURLs(input)
 	if len(urls) == 0 {
@@ -159,7 +192,9 @@ func (s *Stage) Run(
 				lookupCtx, cancel := context.WithTimeout(tctx, 3*time.Second)
 				ips, _ := dnsresolver.LookupHost(lookupCtx, params["resolvers"], parsed.Hostname())
 				cancel()
-				if len(ips) > 0 { asset.IP = ips[0] }
+				if len(ips) > 0 {
+					asset.IP = ips[0]
+				}
 			}
 		}
 
@@ -449,8 +484,24 @@ func (s *Stage) detectTech(header http.Header, body string) []string {
 	}
 
 	combined := body + "\n" + server
-	matched := s.matcher.Match(combined)
-	tech = append(tech, matched...)
+	s.managedMu.RLock()
+	managed := s.managed
+	managedActive := s.managedActive
+	matcher := s.matcher
+	s.managedMu.RUnlock()
+	if managedActive {
+		matcher = nil
+	}
+	if matcher != nil {
+		tech = append(tech, matcher.Match(combined)...)
+	}
+	if managedActive && managed != nil {
+		headerText := formatHeaders(header)
+		title := extractTitle(body)
+		tech = append(tech, managed.Match("header", headerText)...)
+		tech = append(tech, managed.Match("title", title)...)
+		tech = append(tech, managed.Match("body", body)...)
+	}
 	seen := make(map[string]struct{}, len(tech))
 	unique := make([]string, 0, len(tech))
 	for _, value := range tech {
@@ -464,6 +515,55 @@ func (s *Stage) detectTech(header http.Header, body string) []string {
 		}
 	}
 	return unique
+}
+
+func (s *Stage) reloadManagedFingerprints() {
+	if s.fingerprintPath == "" {
+		return
+	}
+	stat, err := os.Stat(s.fingerprintPath)
+	if err != nil {
+		s.managedMu.Lock()
+		if s.managedActive && os.IsNotExist(err) {
+			s.managed = nil
+			s.managedActive = false
+			s.matcher = NewFingerprintMatcher(DefaultFingerprints)
+			s.fingerprintModTime = time.Time{}
+		}
+		s.managedMu.Unlock()
+		return
+	}
+	s.managedMu.RLock()
+	unchanged := stat.ModTime().Equal(s.fingerprintModTime)
+	s.managedMu.RUnlock()
+	if unchanged {
+		return
+	}
+	loaded, err := LoadManagedFingerprints(s.fingerprintPath)
+	if err != nil {
+		s.log.Warn("http fingerprint rules reload failed", zap.Error(err))
+		return
+	}
+	s.managedMu.Lock()
+	s.managed = loaded
+	s.managedActive = true
+	s.matcher = nil
+	s.fingerprintModTime = stat.ModTime()
+	s.managedMu.Unlock()
+	s.log.Info("http fingerprint rules reloaded", zap.Int("count", loaded.Count()))
+}
+
+func formatHeaders(header http.Header) string {
+	var b strings.Builder
+	for key, values := range header {
+		for _, value := range values {
+			b.WriteString(key)
+			b.WriteString(": ")
+			b.WriteString(value)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // normalizeURL 将 http://host:443 这类方案/端口不匹配的 URL 规范化，

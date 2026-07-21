@@ -1,32 +1,42 @@
 <template>
-  <div>
-    <h2 class="page-title" style="margin-bottom:16px">通知设置</h2>
-    <el-card shadow="never" v-loading="loading" style="max-width:720px">
-      <el-tabs v-model="activeTab" type="card">
+  <div class="notify-page">
+    <el-card class="notify-card" shadow="never" v-loading="loading">
+      <template #header>
+        <div class="notify-card-header">
+          <div>
+            <h2 class="page-title">通知设置</h2>
+            <p>配置任务完成、漏洞发现和资产变更等事件的通知渠道。</p>
+          </div>
+          <span class="notify-count">{{ channelList.length }} 个渠道</span>
+        </div>
+      </template>
+      <el-tabs v-model="activeTab" class="channel-tabs">
         <el-tab-pane v-for="ch in channelList" :key="ch.key" :name="ch.key">
           <template #label>
-            <div style="display:flex;align-items:center;gap:6px;padding:0 4px">
-              <el-icon :style="{ color: ch.color, fontSize:'15px' }"><component :is="ch.icon" /></el-icon>
+            <div class="channel-tab">
+              <el-icon :style="{ color: ch.color }"><component :is="ch.icon" /></el-icon>
               <span>{{ ch.label }}</span>
-              <el-badge v-if="channels[ch.key].enabled" is-dot type="success" style="margin-left:2px" />
+              <i v-if="channels[ch.key].enabled" class="enabled-dot" />
             </div>
           </template>
 
-          <div style="padding:4px 0 8px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="channel-content">
+            <div class="status-row">
               <div>
-                <span style="font-size:13px;color:var(--el-text-color-secondary)">渠道状态</span>
+                <strong>渠道状态</strong>
+                <span>启用后将按下方事件发送通知</span>
               </div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:13px;color:var(--el-text-color-secondary)">
+              <div class="status-control">
+                <span :class="{ 'is-enabled': channels[ch.key].enabled }">
                   {{ channels[ch.key].enabled ? '已启用' : '已禁用' }}
                 </span>
                 <el-switch v-model="channels[ch.key].enabled" />
               </div>
             </div>
 
-            <el-form :model="channels[ch.key].config" label-position="top" :disabled="!channels[ch.key].enabled">
-              <el-form-item v-for="field in ch.fields" :key="field.key" :label="field.label">
+            <el-form class="channel-form" :model="channels[ch.key].config" label-position="top" :disabled="!channels[ch.key].enabled">
+              <div class="field-grid">
+              <el-form-item v-for="field in ch.fields" :key="field.key" :label="field.label" class="channel-field">
                 <template v-if="field.hint" #label>
                   <span>{{ field.label }}</span>
                   <el-tooltip :content="field.hint" placement="top">
@@ -42,9 +52,10 @@
                 />
                 <el-input v-else v-model="channels[ch.key].config[field.key]" :placeholder="field.placeholder" />
               </el-form-item>
+              </div>
 
-              <el-form-item label="通知事件">
-                <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <el-form-item label="通知事件" class="event-field">
+                <div class="event-options">
                   <el-checkbox-button
                     v-for="ev in eventOptions"
                     :key="ev.value"
@@ -55,9 +66,8 @@
                 </div>
               </el-form-item>
 
-              <div style="display:flex;gap:8px;margin-top:4px">
+              <div class="form-actions">
                 <el-button
-                  size="small"
                   :loading="testing === ch.key"
                   :disabled="!channels[ch.key].enabled"
                   @click="test(ch.key)"
@@ -65,7 +75,6 @@
                   <el-icon style="margin-right:4px"><Promotion /></el-icon>发送测试
                 </el-button>
                 <el-button
-                  size="small"
                   type="primary"
                   :loading="saving === ch.key"
                   @click="save(ch.key)"
@@ -101,6 +110,7 @@ const eventOptions = [
   { value: 'task_failed', label: '任务失败' },
   { value: 'vuln_found', label: '发现漏洞' },
   { value: 'asset_changed', label: '资产变更' },
+  { value: 'scan_diff', label: '扫描差异摘要' },
 ]
 
 const channelList: { key: string; label: string; icon: string; color: string; fields: FieldDef[] }[] = [
@@ -209,3 +219,49 @@ async function test(key: string) {
   }
 }
 </script>
+
+<style scoped>
+.notify-page { min-height: calc(100vh - 112px); padding: 0 0 24px; }
+.notify-card-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.notify-card-header .page-title { margin: 0; font-size: 16px; }
+.notify-card-header p { margin: 5px 0 0; color: var(--el-text-color-secondary); font-size: 12px; }
+.notify-count { padding: 5px 10px; border: 1px solid var(--el-border-color-light); border-radius: 6px; color: var(--el-text-color-secondary); background: var(--el-fill-color-light); font-size: 12px; }
+.notify-card { width: 100%; max-width: none; border-radius: 8px; }
+.notify-card :deep(.el-card__header) { padding: 16px 20px 14px; }
+.notify-card :deep(.el-card__body) { padding: 16px 20px 22px; }
+.channel-tabs :deep(.el-tabs__header) { margin: 0 0 22px; padding: 4px; border: 1px solid var(--el-border-color-light); border-radius: 9px; background: var(--el-fill-color-light); }
+.channel-tabs :deep(.el-tabs__nav-wrap::after) { display: none; }
+.channel-tabs :deep(.el-tabs__nav) { border: 0; }
+.channel-tabs :deep(.el-tabs__item) { height: 40px; padding: 0 18px; border: 0; border-radius: 6px; color: var(--el-text-color-secondary); }
+.channel-tabs :deep(.el-tabs__item:hover) { color: var(--el-color-primary); }
+.channel-tabs :deep(.el-tabs__item.is-active) { color: var(--el-color-primary); background: var(--el-bg-color-overlay); box-shadow: 0 1px 4px rgb(31 50 81 / 8%); }
+.channel-tabs :deep(.el-tabs__active-bar) { display: none; }
+.channel-tab { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.channel-tab .el-icon { font-size: 16px; }
+.enabled-dot { width: 6px; height: 6px; margin-left: 1px; border-radius: 50%; background: #22c55e; }
+.channel-content { padding: 0 4px; }
+.status-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; margin-bottom: 22px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-light); }
+.status-row strong { display: block; color: var(--el-text-color-primary); font-size: 14px; font-weight: 600; }
+.status-row strong + span { display: block; margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
+.status-control { display: flex; align-items: center; gap: 9px; color: var(--el-text-color-secondary); font-size: 12px; white-space: nowrap; }
+.status-control .is-enabled { color: #16a34a; font-weight: 600; }
+.channel-form :deep(.el-form-item) { margin-bottom: 18px; }
+.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
+.field-grid .channel-field:only-child { grid-column: 1 / -1; }
+.channel-form :deep(.el-form-item__label) { padding-bottom: 6px; color: var(--el-text-color-regular); font-size: 13px; font-weight: 500; line-height: 1.3; }
+.channel-form :deep(.el-input__wrapper) { min-height: 36px; }
+.event-field { padding-top: 2px; }
+.event-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.event-options :deep(.el-checkbox-button__inner) { padding: 8px 13px; border-radius: 6px !important; border-left: 1px solid var(--el-border-color) !important; }
+.form-actions { display: flex; gap: 10px; padding-top: 2px; }
+.form-actions .el-button { min-height: 34px; padding: 0 15px; }
+
+@media (max-width: 700px) {
+  .notify-card-header { align-items: flex-start; flex-direction: column; }
+  .notify-card :deep(.el-card__body) { padding: 14px; }
+  .channel-tabs :deep(.el-tabs__nav) { display: flex; width: 100%; overflow-x: auto; }
+  .channel-tabs :deep(.el-tabs__item) { flex: 0 0 auto; padding: 0 12px; }
+  .field-grid { grid-template-columns: 1fr; }
+  .field-grid .channel-field:only-child { grid-column: auto; }
+}
+</style>

@@ -42,7 +42,6 @@ body {
 }
 .header-actions { display: flex; gap: 8px; align-items: center; }
 
-/* ── 批量删除按钮（仿 cscan 始终可见） ────────────── */
 .batch-delete-btn {
   display: inline-flex;
   align-items: center;
@@ -60,7 +59,6 @@ body {
 .total-text { font-size: 13px; color: var(--el-text-color-secondary); }
 
 /* ── Element Plus 组件微调 ───────────────────────── */
-/* 表格（仿 cscan：浅灰表头、行分隔淡、悬浮高亮） */
 .el-table { font-size: 13px; color: var(--el-text-color-regular); }
 .el-table th.el-table__cell {
   background: var(--el-fill-color-light) !important;

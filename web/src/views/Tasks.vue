@@ -17,13 +17,9 @@
           <el-option label="失败" value="failed" />
         </el-select>
         <el-button @click="fetchList"><el-icon><Refresh /></el-icon></el-button>
-        <el-popconfirm title="批量删除选中任务？" @confirm="batchDeleteTasks">
-          <template #reference>
-            <el-button type="danger" plain :disabled="!selectedTasks.length">
-              <el-icon><Delete /></el-icon>批量删除({{ selectedTasks.length }})
-            </el-button>
-          </template>
-        </el-popconfirm>
+        <el-button type="danger" plain :disabled="!selectedTasks.length" @click="batchDeleteTasks">
+          <el-icon><Delete /></el-icon>批量删除({{ selectedTasks.length }})
+        </el-button>
         <el-button type="primary" @click="openCreate">
           <el-icon><Plus /></el-icon>新建任务
         </el-button>
@@ -174,7 +170,7 @@
 
         <!-- 自定义配置模式 -->
         <template v-if="form.configMode === 'custom'">
-          <PluginConfigEditor :model-value="customConfig" :plugins="filteredPluginsForTask" :dicts="allDicts" :disabled-plugins="disabledPlugins" />
+          <PluginConfigEditor :model-value="customConfig" :plugins="filteredPluginsForTask" :dicts="allDicts" :disabled-plugins="disabledPlugins" :show-plugin-meta="false" />
         </template>
         <el-form-item label="扫描完成后" style="margin-top:12px">
           <el-checkbox v-model="form.ai_analysis_enabled">自动进行 AI 分析</el-checkbox>
@@ -221,7 +217,6 @@
       </el-tabs>
     </el-dialog>
 
-    <!-- cscan 风格任务详情抽屉 -->
     <el-drawer v-model="detailVisible" :title="'任务详情'" size="720px" @close="closeDetail">
       <template #header>
         <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
@@ -776,7 +771,6 @@ async function copyTask(row: Task) {
   dialogVisible.value = true
 }
 
-// ── cscan 风格任务详情抽屉 ──────────────────────────────────────────────────
 interface DetailStage { name: string; status: 'process' | 'finish' | 'error' | 'wait'; statusClass: string; desc: string }
 
 const detailVisible = ref(false)
@@ -1125,7 +1119,6 @@ onUnmounted(() => {
 .plugin-params :deep(.el-form-item__label) { font-size: 13px; color: var(--el-text-color-regular); padding-bottom: 4px; }
 .param-help { font-size: 11px; color: var(--el-text-color-placeholder); margin-top: 4px; line-height: 1.4; }
 
-/* ── cscan 风格任务详情 ──────────────────────────────────────────── */
 .detail-container {
   display: flex; flex-direction: column; gap: 20px; padding: 0 4px;
 }

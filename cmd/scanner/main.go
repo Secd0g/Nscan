@@ -77,7 +77,7 @@ func main() {
 	eng.Register(subdomain.NewBbotStage(log))
 	eng.Register(subdomain.NewFindomainStage(log))
 	eng.Register(port.New(log))
-	eng.Register(httpx.New(log))
+	eng.Register(httpx.NewWithFingerprints(log, filepath.Join(dataDir, "fingerprints.json")))
 	eng.Register(crawler.New(log))
 	eng.Register(nuclei.New(log, pocDir))
 	eng.Register(brute.New(log))

@@ -601,6 +601,7 @@ func (s *Scheduler) OnResult(r *scanv1.TaskResult) {
 	now := time.Now()
 
 	filter := deduplicationFilter(r.ResultType, doc, pid)
+	isNewResult := false
 
 	if filter != nil {
 		setOnInsert := bson.M{"created_at": now}
@@ -659,13 +660,23 @@ func (s *Scheduler) OnResult(r *scanv1.TaskResult) {
 			}
 			if oldDoc != nil {
 				s.recordAssetChange(r.ResultType, oldDoc, doc, pid)
+			} else {
+				// 第一次在项目中出现的资产也要进入差异摘要。
+				s.recordNewAsset(r.ResultType, doc, pid)
 			}
 		} else {
-			opts := options.Update().SetUpsert(true)
-			_, err := s.db.Collection(collName).UpdateOne(context.Background(), filter, update, opts)
-			if err != nil {
+			// 漏洞和敏感信息也需要知道这是首次出现还是已有结果更新，
+			// 否则每天重扫会把同一个结果重复算作“新发现”。
+			fopts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.Before)
+			var oldDoc bson.M
+			err := s.db.Collection(collName).FindOneAndUpdate(context.Background(), filter, update, fopts).Decode(&oldDoc)
+			if err != nil && err != mongo.ErrNoDocuments {
 				s.log.Warn("upsert result failed", zap.String("type", r.ResultType), zap.Error(err))
 				return
+			}
+			if oldDoc == nil && (r.ResultType == "vuln" || r.ResultType == "sensitive") {
+				isNewResult = true
+				s.recordNewAsset(r.ResultType, doc, pid)
 			}
 		}
 	} else {
@@ -677,8 +688,9 @@ func (s *Scheduler) OnResult(r *scanv1.TaskResult) {
 		}
 	}
 
-	// 发现漏洞时推送通知
-	if r.ResultType == "vuln" {
+	// 保留原有即时漏洞通知，但只对首次出现的漏洞发送；
+	// 另有 scan_diff 事件在任务完成时发送完整汇总。
+	if r.ResultType == "vuln" && isNewResult {
 		name, _ := doc["name"].(string)
 		severity, _ := doc["severity"].(string)
 		target, _ := doc["target"].(string)
@@ -876,6 +888,7 @@ func (s *Scheduler) OnStatusUpdate(u *scanv1.TaskStatusUpdate) {
 			_ = s.db.Collection("tasks").FindOne(context.Background(), bson.M{"_id": taskID}).Decode(&taskDoc)
 			_ = repo.DiffOfflineAssets(context.Background(), projID.Hex(), u.TaskId, taskDoc.Config.Stages)
 		}
+		s.notifyScanDiff(taskID, current.Name)
 		s.maybeAnalyzeTask(taskID)
 	} else if status == models.TaskStatusFailed {
 		s.notifyTaskEvent(taskID, models.NotifyEventTaskFailed, u.Error)
@@ -1432,26 +1445,19 @@ func (s *Scheduler) recordAssetChange(resultType string, oldDoc, newDoc bson.M, 
 	}
 
 	assetID, _ := oldDoc["_id"].(primitive.ObjectID)
-	taskID := fmt.Sprint(newDoc["task_id"])
+	taskID := taskIDString(newDoc["task_id"])
+	assetLabel := assetLabelFromDoc(resultType, newDoc)
 	changeLog := &models.AssetChangeLog{
-		AssetID:   assetID,
-		AssetType: resultType,
-		ProjectID: fmt.Sprint(pid),
-		TaskID:    taskID,
-		Changes:   changes,
-		CreatedAt: time.Now(),
+		AssetID:    assetID,
+		AssetType:  resultType,
+		AssetLabel: assetLabel,
+		ProjectID:  fmt.Sprint(pid),
+		TaskID:     taskID,
+		Changes:    changes,
+		CreatedAt:  time.Now(),
 	}
 	_, _ = s.db.Collection("asset_changes").InsertOne(context.Background(), changeLog)
 
-	var assetLabel string
-	switch resultType {
-	case "subdomain":
-		assetLabel, _ = oldDoc["domain"].(string)
-	case "port":
-		assetLabel = fmt.Sprintf("%v:%v", oldDoc["ip"], oldDoc["port"])
-	case "http":
-		assetLabel, _ = oldDoc["url"].(string)
-	}
 	fieldSummary := make([]string, 0, len(changes))
 	for _, c := range changes {
 		fieldSummary = append(fieldSummary, fmt.Sprintf("%s: %s → %s", c.Field, c.Old, c.New))
@@ -1459,6 +1465,145 @@ func (s *Scheduler) recordAssetChange(resultType string, oldDoc, newDoc bson.M, 
 	title := fmt.Sprintf("资产变更: %s", assetLabel)
 	body := fmt.Sprintf("类型: %s\n资产: %s\n变更:\n%s", resultType, assetLabel, strings.Join(fieldSummary, "\n"))
 	s.notifier.Notify(models.NotifyEventAssetChanged, title, body)
+}
+
+// recordNewAsset 将首次出现的结果记入差异日志，供任务完成时汇总。
+func (s *Scheduler) recordNewAsset(resultType string, doc bson.M, pid interface{}) {
+	log := &models.AssetChangeLog{
+		AssetType:  resultType,
+		AssetLabel: assetLabelFromDoc(resultType, doc),
+		ProjectID:  fmt.Sprint(pid),
+		TaskID:     taskIDString(doc["task_id"]),
+		Changes:    []models.FieldChange{{Field: "status", Old: "", New: "new_discovered"}},
+		CreatedAt:  time.Now(),
+	}
+	if id, ok := doc["_id"].(primitive.ObjectID); ok {
+		log.AssetID = id
+	}
+	if _, err := s.db.Collection("asset_changes").InsertOne(context.Background(), log); err != nil {
+		s.log.Warn("insert new asset change failed", zap.String("type", resultType), zap.Error(err))
+	}
+}
+
+func taskIDString(v interface{}) string {
+	switch id := v.(type) {
+	case primitive.ObjectID:
+		return id.Hex()
+	case string:
+		return id
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func assetLabelFromDoc(resultType string, doc bson.M) string {
+	switch resultType {
+	case "subdomain":
+		v, _ := doc["domain"].(string)
+		return v
+	case "http":
+		v, _ := doc["url"].(string)
+		return v
+	case "port":
+		return fmt.Sprintf("%v:%v", doc["ip"], doc["port"])
+	case "vuln":
+		name, _ := doc["name"].(string)
+		target, _ := doc["target"].(string)
+		if name != "" && target != "" {
+			return name + " @ " + target
+		}
+		if name != "" {
+			return name
+		}
+		return target
+	case "sensitive":
+		rule, _ := doc["rule_name"].(string)
+		url, _ := doc["url"].(string)
+		if rule != "" && url != "" {
+			return rule + " @ " + url
+		}
+		if url != "" {
+			return url
+		}
+		return rule
+	}
+	return ""
+}
+
+// notifyScanDiff 在一次扫描完成后发送一条汇总消息。
+func (s *Scheduler) notifyScanDiff(taskID primitive.ObjectID, taskName string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cursor, err := s.db.Collection("asset_changes").Find(ctx,
+		bson.M{"task_id": taskID.Hex()},
+		options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(2000))
+	if err != nil {
+		s.log.Warn("load scan diff failed", zap.Error(err))
+		return
+	}
+	defer cursor.Close(ctx)
+	var logs []models.AssetChangeLog
+	if err := cursor.All(ctx, &logs); err != nil {
+		s.log.Warn("decode scan diff failed", zap.Error(err))
+		return
+	}
+
+	var newSubdomains, statusChanges, newVulns, newSensitive []string
+	seen := map[string]bool{}
+	appendUnique := func(dst *[]string, key, label string) {
+		if label == "" {
+			label = "未命名资产"
+		}
+		if !seen[key+"\x00"+label] {
+			seen[key+"\x00"+label] = true
+			*dst = append(*dst, label)
+		}
+	}
+	for _, log := range logs {
+		for _, change := range log.Changes {
+			if change.Field == "status" && change.New == "new_discovered" {
+				switch log.AssetType {
+				case "subdomain":
+					appendUnique(&newSubdomains, "subdomain", log.AssetLabel)
+				case "vuln":
+					appendUnique(&newVulns, "vuln", log.AssetLabel)
+				case "sensitive":
+					appendUnique(&newSensitive, "sensitive", log.AssetLabel)
+				}
+			}
+			if log.AssetType == "http" && change.Field == "status_code" {
+				appendUnique(&statusChanges, "status:"+change.Old+"->"+change.New, fmt.Sprintf("%s: %s → %s", log.AssetLabel, change.Old, change.New))
+			}
+		}
+	}
+	if len(newSubdomains)+len(statusChanges)+len(newVulns)+len(newSensitive) == 0 {
+		return
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "任务：%s\n扫描时间：%s\n\n", taskName, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&b, "新增子域名：%d\n状态码变化：%d\n新增漏洞：%d\n新增敏感信息：%d\n", len(newSubdomains), len(statusChanges), len(newVulns), len(newSensitive))
+	writeDetails := func(title string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+		b.WriteString("\n" + title + "：\n")
+		max := len(values)
+		if max > 30 {
+			max = 30
+		}
+		for _, value := range values[:max] {
+			b.WriteString("- " + value + "\n")
+		}
+		if len(values) > max {
+			fmt.Fprintf(&b, "- ……另有 %d 条未展开\n", len(values)-max)
+		}
+	}
+	writeDetails("新增子域名", newSubdomains)
+	writeDetails("状态码变化", statusChanges)
+	writeDetails("新增漏洞", newVulns)
+	writeDetails("新增敏感信息", newSensitive)
+	s.notifier.Notify(models.NotifyEventScanDiff, "扫描差异摘要", b.String())
 }
 
 func resultCollection(typ string) string {

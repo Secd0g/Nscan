@@ -51,7 +51,7 @@ function copyToken() { if (token) copy(token); else ElMessage.warning('当前登
 </script>
 
 <style scoped>
-.mcp-config { padding: 24px; max-width: 900px; }
+.mcp-config { padding: 24px; max-width: none; }
 .page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .hint, .field-hint { color: var(--el-text-color-secondary); font-size: 13px; }
 .hint { margin: 8px 0 20px; }.field-hint { margin-top: 5px; font-size: 12px; }

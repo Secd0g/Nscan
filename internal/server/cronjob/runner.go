@@ -127,11 +127,12 @@ func deriveFromModules(mods map[string][]models.StagePlugin) (stages []string, p
 		"httpx":       "http",
 		"fingerprint": "http",
 		"nuclei":      "nuclei",
-		"dirscan":     "dir",
+		"ffuf":        "dir",
+		"dirscan":     "dir", // 兼容历史定时任务
 		"brutescan":   "brute",
 		"onlinesearch": "search",
 		"crawler":    "crawler",
-		"sensitive":   "sensitive",
+		"sensitive":  "sensitive",
 	}
 
 	// moduleOrder 与 api/task.go 保持同步

@@ -1,13 +1,137 @@
 package httpx
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+
 	ahocorasick "github.com/petar-dambovaliev/aho-corasick"
+	"github.com/yourname/nscan/pkg/models"
 )
 
 // Fingerprint defines a single technology fingerprint rule.
 type Fingerprint struct {
 	Name     string   // Technology name (e.g. "WordPress")
 	Patterns []string // Patterns to match in body/headers
+}
+
+// ManagedFingerprint is the representation used by the central fingerprint
+// management page. Unlike the original built-in fingerprints, managed rules
+// also carry their match location and match type.
+type ManagedFingerprint struct {
+	Name      string
+	Keyword   string
+	Location  string
+	MatchType string
+}
+
+// ManagedMatcher matches centrally managed rules without making the HTTP
+// stage depend on MongoDB. The scanner receives these rules as JSON during
+// config sync.
+type ManagedMatcher struct {
+	contains map[string]*FingerprintMatcher
+	regex    []managedRegexRule
+}
+
+func (m *ManagedMatcher) Count() int {
+	if m == nil {
+		return 0
+	}
+	count := len(m.regex)
+	for _, matcher := range m.contains {
+		count += len(matcher.fps)
+	}
+	return count
+}
+
+type managedRegexRule struct {
+	name     string
+	location string
+	re       *regexp.Regexp
+}
+
+// LoadManagedFingerprints loads enabled passive rules from a synced JSON file.
+func LoadManagedFingerprints(path string) (*ManagedMatcher, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var raw []models.Fingerprint
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("decode fingerprints: %w", err)
+	}
+
+	byLocation := make(map[string][]Fingerprint)
+	var regexRules []managedRegexRule
+	for _, fp := range raw {
+		if !fp.Enabled || (fp.FpType != "" && !strings.EqualFold(fp.FpType, "passive")) {
+			continue
+		}
+		keyword := strings.TrimSpace(fp.Keyword)
+		if fp.Name == "" || keyword == "" {
+			continue
+		}
+		location := normalizeFingerprintLocation(fp.Location)
+		if strings.EqualFold(fp.MatchType, "regex") {
+			re, err := regexp.Compile(keyword)
+			if err != nil {
+				continue
+			}
+			regexRules = append(regexRules, managedRegexRule{name: fp.Name, location: location, re: re})
+			continue
+		}
+		// The UI currently exposes contains/regex/md5. MD5 needs a digest
+		// specific input which HTTP probing does not yet provide, so it is
+		// intentionally ignored instead of producing false positives.
+		if strings.EqualFold(fp.MatchType, "md5") {
+			continue
+		}
+		byLocation[location] = append(byLocation[location], Fingerprint{Name: fp.Name, Patterns: []string{keyword}})
+	}
+
+	matcher := &ManagedMatcher{contains: make(map[string]*FingerprintMatcher), regex: regexRules}
+	for location, rules := range byLocation {
+		matcher.contains[location] = NewFingerprintMatcher(rules)
+	}
+	return matcher, nil
+}
+
+func normalizeFingerprintLocation(location string) string {
+	switch strings.ToLower(strings.TrimSpace(location)) {
+	case "header", "headers":
+		return "header"
+	case "title":
+		return "title"
+	default:
+		return "body"
+	}
+}
+
+// Match returns names matched in the supplied location.
+func (m *ManagedMatcher) Match(location, text string) []string {
+	if m == nil || text == "" {
+		return nil
+	}
+	location = normalizeFingerprintLocation(location)
+	seen := make(map[string]struct{})
+	var result []string
+	if matcher := m.contains[location]; matcher != nil {
+		for _, name := range matcher.Match(text) {
+			seen[name] = struct{}{}
+			result = append(result, name)
+		}
+	}
+	for _, rule := range m.regex {
+		if rule.location == location && rule.re.MatchString(text) {
+			if _, ok := seen[rule.name]; !ok {
+				seen[rule.name] = struct{}{}
+				result = append(result, rule.name)
+			}
+		}
+	}
+	return result
 }
 
 // FingerprintMatcher uses Aho-Corasick for O(n) multi-pattern matching.

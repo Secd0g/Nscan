@@ -1,0 +1,31 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+deploy/.env.production
+deploy/certs/
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+*credentials*.json
+
+# Build output and dependencies
+dist/
+web/node_modules/
+web/dist/
+
+# Local runtime data and backups
+backups/
+data/scanner/recovery/
+*.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

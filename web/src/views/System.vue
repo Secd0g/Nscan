@@ -8,7 +8,7 @@
       </div>
     </div>
 
-    <el-tabs v-model="activeTab" type="border-card" class="config-tabs">
+    <el-tabs v-model="activeTab" class="config-tabs">
       <el-tab-pane name="system" lazy>
         <template #label><span class="tab-label"><el-icon><Setting /></el-icon>系统</span></template>
         <SystemGeneral />
@@ -52,18 +52,28 @@ const activeTab = ref('system')
 
 <style scoped>
 .system-config { min-height: calc(100vh - 112px); padding: 4px 2px 24px; }
-.config-hero { display: flex; align-items: center; gap: 14px; padding: 22px 24px; margin-bottom: 18px; border: 1px solid var(--el-border-color-light); border-radius: 12px; background: linear-gradient(135deg, var(--el-bg-color-overlay), var(--el-color-primary-light-9)); }
-.hero-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #4080ff, #6d5dfc); font-size: 22px; box-shadow: 0 8px 18px rgb(64 128 255 / 22%); }
+.config-hero { display: flex; align-items: center; gap: 14px; padding: 18px 22px; margin-bottom: 16px; border: 1px solid var(--el-border-color-light); border-radius: 12px; background: linear-gradient(135deg, var(--el-bg-color-overlay), var(--el-color-primary-light-9)); }
+.hero-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 11px; color: #fff; background: linear-gradient(135deg, #4080ff, #6d5dfc); font-size: 21px; box-shadow: 0 6px 14px rgb(64 128 255 / 18%); }
 .hero-title-row { display: flex; align-items: center; gap: 10px; }
-.hero-title-row h2 { margin: 0; font-size: 19px; font-weight: 650; color: var(--el-text-color-primary); }
-.hero-copy p { margin: 6px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
+.hero-title-row h2 { margin: 0; font-size: 18px; font-weight: 650; color: var(--el-text-color-primary); }
+.hero-copy p { margin: 5px 0 0; color: var(--el-text-color-secondary); font-size: 12px; }
 .config-tabs { border: 0; box-shadow: none; }
-.config-tabs :deep(.el-tabs__header) { border: 1px solid var(--el-border-color-light); border-radius: 10px; overflow: hidden; }
-.config-tabs :deep(.el-tabs__nav-wrap) { padding: 0 8px; }
-.config-tabs :deep(.el-tabs__item) { height: 48px; color: var(--el-text-color-secondary); }
-.config-tabs :deep(.el-tabs__item.is-active) { color: var(--el-color-primary); font-weight: 600; background: var(--el-bg-color-overlay); }
-.tab-label { display: inline-flex; align-items: center; gap: 6px; }
-.config-tabs :deep(.el-tabs__content) { padding: 20px 0 0; }
-.config-tabs :deep(.el-tab-pane > .page-card),
-.config-tabs :deep(.el-tab-pane > div) { padding: 0; }
+.config-tabs :deep(.el-tabs__header) { margin: 0; padding: 0 8px; border: 1px solid var(--el-border-color-light); border-radius: 10px; background: var(--el-fill-color-light); }
+.config-tabs :deep(.el-tabs__nav-wrap) { padding: 0; }
+.config-tabs :deep(.el-tabs__nav-wrap::after) { display: none; }
+.config-tabs :deep(.el-tabs__nav) { border: 0; }
+.config-tabs :deep(.el-tabs__active-bar) { display: none; }
+.config-tabs :deep(.el-tabs__item) { position: relative; height: 44px; padding: 0 16px; margin-right: 2px; border: 0; border-radius: 0; color: var(--el-text-color-secondary); transition: color .2s, background .2s; }
+.config-tabs :deep(.el-tabs__item:last-child) { margin-right: 0; }
+.config-tabs :deep(.el-tabs__item:hover) { color: var(--el-color-primary); }
+.config-tabs :deep(.el-tabs__item.is-active) { color: var(--el-color-primary); font-weight: 600; background: transparent; }
+.config-tabs :deep(.el-tabs__item.is-active::after) { content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px; border-radius: 2px; background: var(--el-color-primary); }
+.tab-label { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.tab-label :deep(.el-icon) { font-size: 15px; }
+.config-tabs :deep(.el-tabs__content) { padding: 14px 0 22px; }
+
+@media (max-width: 900px) {
+  .config-tabs :deep(.el-tabs__nav) { display: flex; width: 100%; overflow-x: auto; }
+  .config-tabs :deep(.el-tabs__item) { flex: 0 0 auto; padding: 0 14px; }
+}
 </style>

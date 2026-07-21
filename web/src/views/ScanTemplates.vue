@@ -77,7 +77,7 @@
         </el-card>
 
         <!-- 每个模块的插件卡片 -->
-        <el-card
+        <el-card v-if="false"
           v-for="mod in moduleOrder"
           :key="mod"
           shadow="never"
@@ -172,6 +172,8 @@
           <el-empty v-if="getModulePlugins(mod).length === 0" description="暂无可用插件" :image-size="40" />
         </el-card>
 
+        <PluginConfigEditor :model-value="form.modules" :plugins="allPlugins" :dicts="allDicts" :show-plugin-meta="false" />
+
         <div class="editor-footer">
           <el-button @click="closeEditor">取消</el-button>
           <el-button v-if="editing" :loading="saving" @click="saveAs">另存为新模版</el-button>
@@ -188,6 +190,7 @@ import { ElMessage } from 'element-plus'
 import { scanTemplateApi, pluginApi, dictApi } from '@/api'
 import type { ScanTemplate, Plugin, StagePlugin, DictEntry } from '@/api'
 import { MODULE_ORDER, moduleLabel, moduleIcon } from '@/constants/modules'
+import PluginConfigEditor from '@/components/PluginConfigEditor.vue'
 
 const moduleOrder = [...MODULE_ORDER]
 

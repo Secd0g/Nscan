@@ -12,13 +12,16 @@ const (
 	NotifyEventTaskFailed   = "task_failed"
 	NotifyEventVulnFound    = "vuln_found"
 	NotifyEventAssetChanged = "asset_changed"
+	// NotifyEventScanDiff 是一次扫描完成后的新增/变化汇总通知。
+	NotifyEventScanDiff = "scan_diff"
 )
 
 // NotifyChannel 一个通知渠道的配置（每个渠道一条文档，key 唯一）。
 // Config 保存渠道特有字段：
-//   wecom/slack:  webhook
-//   dingtalk:     webhook, secret
-//   email:        smtp_host, from, password, to
+//
+//	wecom/slack:  webhook
+//	dingtalk:     webhook, secret
+//	email:        smtp_host, from, password, to
 type NotifyChannel struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"-"`
 	Key       string             `bson:"key"        json:"key"`

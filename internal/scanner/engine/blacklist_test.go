@@ -42,3 +42,32 @@ func TestBlacklistChecker(t *testing.T) {
 		}
 	}
 }
+
+func TestBlacklistCheckerFiltersResults(t *testing.T) {
+	checker := NewBlacklistChecker([]*scanv1.BlacklistRule{
+		{Type: "domain", Value: "Blocked.Example"},
+		{Type: "ip", Value: "1.1.1.1"},
+		{Type: "wildcard", Value: "*.blocked.example"},
+	})
+
+	blocked := []struct {
+		name string
+		data string
+	}{
+		{"http url", `{"url":"https://blocked.example/login"}`},
+		{"subdomain", `{"domain":"api.blocked.example"}`},
+		{"port", `{"ip":"1.1.1.1","port":443}`},
+		{"vulnerability target", `{"target":"http://1.1.1.1:8080"}`},
+	}
+	for _, tt := range blocked {
+		t.Run(tt.name, func(t *testing.T) {
+			if !checker.IsResultBlocked(&ScanResult{Data: []byte(tt.data)}) {
+				t.Fatalf("expected result to be blocked: %s", tt.data)
+			}
+		})
+	}
+
+	if checker.IsResultBlocked(&ScanResult{Data: []byte(`{"url":"https://safe.example"}`)}) {
+		t.Fatal("did not expect safe result to be blocked")
+	}
+}

@@ -116,7 +116,7 @@
         <div v-for="c in changes" :key="c.id" class="change-item">
           <div class="change-left">
             <el-tag :type="changeTagType(c.asset_type)" size="small" class="change-type-tag">{{ changeTypeLabel(c.asset_type) }}</el-tag>
-            <span class="change-id" :title="c.asset_id">{{ c.asset_id.slice(0, 8) }}</span>
+            <span v-if="c.asset_label" class="change-label" :title="c.asset_label">{{ c.asset_label }}</span>
           </div>
           <div class="change-center">
             <div v-for="ch in c.changes" :key="ch.field" class="change-field">
@@ -383,7 +383,7 @@ onUnmounted(() => {
 .change-item:last-child { border-bottom: none; }
 .change-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 120px; }
 .change-type-tag { font-size: 11px !important; }
-.change-id { font-family: monospace; font-size: 11px; color: var(--el-text-color-secondary); }
+.change-label { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--el-text-color-primary); }
 .change-center { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .change-field { display: flex; align-items: center; gap: 4px; font-size: 12px; flex-wrap: wrap; }
 .field-name { font-weight: 600; color: var(--el-text-color-primary); flex-shrink: 0; }

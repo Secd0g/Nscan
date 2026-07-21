@@ -1,17 +1,20 @@
 <template>
-  <div class="page-card">
+  <div class="page-card blacklist-card">
     <div class="page-header">
-      <h2 class="page-title">扫描黑名单</h2>
+      <div>
+        <h2 class="page-title">扫描黑名单</h2>
+        <p class="page-subtitle">管理扫描时自动跳过的域名、IP、CIDR 和通配符规则</p>
+      </div>
       <div class="header-actions">
         <el-popconfirm title="确认清空所有黑名单？" @confirm="clearAll">
           <template #reference>
-            <el-button type="danger" plain :disabled="!list.length" size="small">清空</el-button>
+            <el-button type="danger" plain class="action-button" :disabled="!list.length">清空</el-button>
           </template>
         </el-popconfirm>
-        <el-button size="small" @click="showBatchAdd = true">
+        <el-button class="action-button" @click="showBatchAdd = true">
           <el-icon><Upload /></el-icon>批量导入
         </el-button>
-        <el-button type="primary" size="small" @click="showAdd = true">
+        <el-button type="primary" class="action-button" @click="showAdd = true">
           <el-icon><Plus /></el-icon>添加规则
         </el-button>
       </div>
@@ -225,6 +228,25 @@ async function clearAll() {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.blacklist-card { padding: 24px 26px 28px; border-radius: 12px; box-shadow: 0 4px 14px rgb(31 50 81 / 3%); }
+.blacklist-card .page-header { margin-bottom: 20px; }
+.page-subtitle { margin: 6px 0 0; color: var(--el-text-color-secondary); font-size: 12px; }
+.header-actions { gap: 10px; }
+.action-button { min-height: 36px; padding: 0 15px; }
+.filter-bar { padding: 14px 16px; margin-bottom: 16px !important; border: 1px solid var(--el-border-color-lighter); border-radius: 9px; background: var(--el-fill-color-light); }
+.blacklist-card :deep(.el-alert) { margin-bottom: 16px !important; border-radius: 9px; }
+.blacklist-card :deep(.el-table) { border-radius: 8px; overflow: hidden; }
+.blacklist-card :deep(.el-table th.el-table__cell) { padding: 13px 0; }
+.blacklist-card :deep(.el-table td.el-table__cell) { padding: 13px 0; }
+
+@media (max-width: 700px) {
+  .blacklist-card { padding: 18px 16px 22px; }
+  .blacklist-card .page-header { align-items: flex-start; gap: 14px; flex-direction: column; }
+  .header-actions { width: 100%; flex-wrap: wrap; }
+}
+</style>
 
 <style scoped>
 .filter-bar { display: flex; align-items: center; gap: 8px; }
